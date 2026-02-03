@@ -20,6 +20,7 @@ qt_add_executable(em-shield-designer
     include/core/LOAD_Impedance.h
     include/core/MNASolver.h
     src/core/MNASolver.cpp
+    include/core/AP_SlotAperture.h
 )
 
 target_link_libraries(em-shield-designer

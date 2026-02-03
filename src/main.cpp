@@ -1,222 +1,342 @@
 #include "../mainwindow.h"
 
 #include <QApplication>
+#include <QStandardPaths>
+#include <QDir>
 #include "../include/core/PhysicsConstants.h"
 #include "../include/core/BranchTemplate.h"
 #include "../include/core/TL_EmptyCavity.h"
 #include "../include/core/SRC_VoltageSource.h"
 #include "../include/core/LOAD_Impedance.h"
+#include "../include/core/AP_SlotAperture.h"
 #include "../include/core/MNASolver.h"
 
 #include <iostream>
 #include <iomanip>
+#include <fstream>
+#include <vector>
+#include <filesystem>
 
 // Windows-specific header for console encoding
 #ifdef _WIN32
-    #include <windows.h>
+#include <windows.h>
 #endif
 
 #include <memory>
 
+// ============================================================================
+// FREQUENCY SWEEP CONFIGURATION
+// ============================================================================
+struct FrequencySweepConfig {
+    double f_start;      // Start frequency [Hz]
+    double f_stop;       // Stop frequency [Hz]
+    int num_points;      // Number of frequency points
+    bool log_spacing;    // true = logarithmic, false = linear spacing
+
+    FrequencySweepConfig(double start = 1e9, double stop = 20e9,
+                         int points = 200, bool log = false)
+        : f_start(start), f_stop(stop), num_points(points), log_spacing(log) {}
+};
+
+// ============================================================================
+// FREQUENCY SWEEP RESULTS CONTAINER
+// ============================================================================
+struct FrequencySweepResults {
+    std::vector<double> frequencies;
+    std::vector<EMCore::Complex> V1;
+    std::vector<EMCore::Complex> V2;
+    std::vector<double> SE_dB;
+    std::vector<double> transmission;
+
+    double enclosure_width;
+    double enclosure_height;
+    double total_depth;
+    double observation_point;
+    double aperture_width;
+    double aperture_height;
+};
+
+// ============================================================================
+// GENERATE FREQUENCY VECTOR
+// ============================================================================
+std::vector<double> generateFrequencies(const FrequencySweepConfig& config) {
+    std::vector<double> frequencies;
+    frequencies.reserve(config.num_points);
+
+    if (config.log_spacing) {
+        double log_start = std::log10(config.f_start);
+        double log_stop = std::log10(config.f_stop);
+        double log_step = (log_stop - log_start) / (config.num_points - 1);
+
+        for (int i = 0; i < config.num_points; ++i) {
+            double log_f = log_start + i * log_step;
+            frequencies.push_back(std::pow(10.0, log_f));
+        }
+    } else {
+        double df = (config.f_stop - config.f_start) / (config.num_points - 1);
+
+        for (int i = 0; i < config.num_points; ++i) {
+            frequencies.push_back(config.f_start + i * df);
+        }
+    }
+
+    return frequencies;
+}
+
+// ============================================================================
+// PERFORM FREQUENCY SWEEP
+// ============================================================================
+FrequencySweepResults performFrequencySweep(
+    const FrequencySweepConfig& config,
+    double aa, double b, double d, double p,
+    double l, double ww, double t, double Z_source)
+{
+    FrequencySweepResults results;
+
+    results.enclosure_width = aa;
+    results.enclosure_height = b;
+    results.total_depth = d;
+    results.observation_point = p;
+    results.aperture_width = l;
+    results.aperture_height = ww;
+
+    results.frequencies = generateFrequencies(config);
+    results.V1.reserve(config.num_points);
+    results.V2.reserve(config.num_points);
+    results.SE_dB.reserve(config.num_points);
+    results.transmission.reserve(config.num_points);
+
+    double L1 = p;
+    double L2 = d - p;
+
+    EMCore::MNASolver solver;
+
+    auto src = std::make_shared<EMCore::SRC_VoltageSource>(
+        0, 1, 0, EMCore::Complex(1.0, 0.0), Z_source
+        );
+    auto aperture = std::make_shared<EMCore::AP_SlotAperture>(
+        1, 0, 1, aa, b, l, ww, t
+        );
+    auto cavity1 = std::make_shared<EMCore::TL_EmptyCavity>(
+        1, 2, 2, aa, b, L1
+        );
+    auto cavity2 = std::make_shared<EMCore::TL_EmptyCavity>(
+        2, 0, 3, aa, b, L2
+        );
+
+    solver.addBranch(src);
+    solver.addBranch(aperture);
+    solver.addBranch(cavity1);
+    solver.addBranch(cavity2);
+
+    std::cout << "\n========================================\n";
+    std::cout << "Performing Frequency Sweep\n";
+    std::cout << "========================================\n";
+    std::cout << "Frequency Range: " << config.f_start/1e9 << " - "
+              << config.f_stop/1e9 << " GHz (" << config.num_points << " points)\n\n";
+
+    int progress_step = config.num_points / 20;
+    if (progress_step == 0) progress_step = 1;
+
+    for (int i = 0; i < config.num_points; ++i) {
+        double f = results.frequencies[i];
+        auto U = solver.solve(f);
+
+        EMCore::Complex v1 = U(0);
+        EMCore::Complex v2 = U(1);
+
+        results.V1.push_back(v1);
+        results.V2.push_back(v2);
+
+        double se_db = -20.0 * std::log10(std::abs(2.0 * v2));
+        results.SE_dB.push_back(se_db);
+
+        double trans = std::abs(v2 / v1);
+        results.transmission.push_back(trans);
+
+        if (i % progress_step == 0) {
+            int percent = (100 * i) / config.num_points;
+            std::cout << "  Progress: " << std::setw(3) << percent << "% (f = "
+                      << std::fixed << std::setprecision(2) << f/1e9 << " GHz)\n";
+        }
+    }
+
+    std::cout << "  Progress: 100% - Complete!\n";
+    std::cout << "========================================\n\n";
+
+    return results;
+}
+
+// ============================================================================
+// EXPORT TO CSV
+// ============================================================================
+bool exportToCSV(const FrequencySweepResults& results, const std::string& filename) {
+    std::ofstream file(filename);
+
+    if (!file.is_open()) {
+        std::cerr << "ERROR: Could not open file: " << filename << "\n";
+        return false;
+    }
+
+    file << "# EMShieldDesigner - Frequency Sweep Results\n";
+    file << "# Single-section enclosure with aperture\n#\n";
+    file << "f_GHz,SE_dB,Trans,V1_real,V1_imag,V2_real,V2_imag,|V1|,|V2|\n";
+
+    file << std::fixed << std::setprecision(9);
+
+    for (size_t i = 0; i < results.frequencies.size(); ++i) {
+        file << results.frequencies[i] / 1e9 << ","
+             << std::setprecision(6) << results.SE_dB[i] << ","
+             << std::setprecision(9) << results.transmission[i] << ","
+             << results.V1[i].real() << ","
+             << results.V1[i].imag() << ","
+             << results.V2[i].real() << ","
+             << results.V2[i].imag() << ","
+             << std::abs(results.V1[i]) << ","
+             << std::abs(results.V2[i]) << "\n";
+    }
+
+    file.close();
+
+    std::cout << "✓ Results exported to: " << filename << "\n";
+    std::cout << "  Data points: " << results.frequencies.size() << "\n\n";
+
+    return true;
+}
+
+// ============================================================================
+// MAIN FUNCTION
+// ============================================================================
 int main(int argc, char *argv[])
 {
-    // ========================================================================
-    // FIX UTF-8 CONSOLE ENCODING (Windows only)
-    // ========================================================================
-    #ifdef _WIN32
-        SetConsoleOutputCP(CP_UTF8);  // Enable UTF-8 in Windows console
-    #endif
+#ifdef _WIN32
+    SetConsoleOutputCP(CP_UTF8);
+#endif
 
-    // ========================================================================
-    // Qt APPLICATION SETUP
-    // ========================================================================
     QApplication a(argc, argv);
     MainWindow w;
     w.show();
 
-    // ========================================================================
-    // PHYSICS CONSTANTS TEST
-    // ========================================================================
-
-    /*
     std::cout << std::fixed << std::setprecision(6);
+    std::cout << "\n╔════════════════════════════════════════════════════════════╗\n";
+    std::cout << "║     EMShieldDesigner - Single-Section Aperture SE          ║\n";
+    std::cout << "║       (Two-segment TL model, observation at p=150mm)       ║\n";
+    std::cout << "╚════════════════════════════════════════════════════════════╝\n\n";
 
-    std::cout << "=== Physics Constants Test ===\n";
-    std::cout << "Speed of light: " << EMCore::C_LIGHT << " m/s\n";
-    std::cout << "Permeability μ₀: " << EMCore::MU_0 << " H/m\n";
-    std::cout << "Permittivity ε₀: " << EMCore::EPS_0 << " F/m\n";
-    std::cout << "Impedance Z₀: " << EMCore::Z_0 << " Ω\n\n";
+    // Physical parameters
+    double aa = 0.050;
+    double b = 0.025;
+    double d = 0.300;
+    double p = 0.150;
+    double t = 0.0015;
+    double l = 0.08;
+    double ww = 0.08;
+    double Z_source = 120.0 * M_PI;
 
-    std::cout << "=== Conversion Tests ===\n";
-    std::cout << "20 dB → linear: " << EMCore::dB_to_linear(20.0) << "\n";
-    std::cout << "10 linear → dB: " << EMCore::linear_to_dB(10.0) << " dB\n";
-    std::cout << "Wavenumber @ 6 GHz: "
-              << EMCore::frequency_to_wavenumber(6e9) << " rad/m\n";
-    */
-
-    // ========================================================================
-    // BRANCH TEMPLATE TEST
-    // ========================================================================
-
-    // Test that BranchTemplate compiles
-    /*
-    std::cout << "BranchTemplate header compiled successfully!\n";
-
-    // We can't instantiate it (it's abstract), but we can use the enum:
-    EMCore::BranchTemplate::BranchType type = EMCore::BranchTemplate::BranchType::TL_EMPTY_CAVITY;
-    std::cout << "Branch type enum works!\n";
-    */
-
-    /*
-    std::cout << std::fixed << std::setprecision(6);
-    std::cout << "========================================\n";
-    std::cout << "TL_EmptyCavity Validation Test\n";
-    std::cout << "========================================\n\n";
+    std::cout << "Physical Parameters:\n";
+    std::cout << "  a = " << aa*1000 << " mm\n";
+    std::cout << "  b = " << b*1000 << " mm\n";
+    std::cout << "  d = " << d*1000 << " mm\n";
+    std::cout << "  p = " << p*1000 << " mm\n";
+    std::cout << "  l = " << l*1000 << " mm\n";
+    std::cout << "  w = " << ww*1000 << " mm\n";
+    std::cout << "  t = " << t*1000 << " mm\n";
+    std::cout << "  Zs = " << Z_source << " Ohm\n\n";
 
     // ========================================================================
-    // TEST CASE: Match your MATLAB reference
+    // SINGLE-POINT TEST @ 6.035 GHz (for MATLAB comparison)
     // ========================================================================
-    // Cavity dimensions (CHANGE THESE to match your MATLAB test case)
-    double aa = 0.050;      // 50 mm width
-    double b = 0.025;      // 25 mm height
-    double L = 0.100;      // 100 mm length
+    std::cout << "╔════════════════════════════════════════════════════════════╗\n";
+    std::cout << "║         SINGLE-POINT TEST @ 6.035 GHz                      ║\n";
+    std::cout << "╚════════════════════════════════════════════════════════════╝\n\n";
 
-    // Test frequency
-    double f_test = 6.0e9; // 6 GHz
+    double f_test = 6.035e9;  // Match MATLAB frequency sweep point
 
-    // Create cavity branch
-    EMCore::TL_EmptyCavity cavity(0, 1, 0, aa, b, L);
+    EMCore::MNASolver test_solver;
+    test_solver.setDebugMode(true);
 
-    // Print cavity info
-    std::cout << "Cavity Configuration:\n";
-    std::cout << "  " << cavity.getDescription() << "\n\n";
+    auto test_src = std::make_shared<EMCore::SRC_VoltageSource>(
+        0, 1, 0, EMCore::Complex(1.0, 0.0), Z_source
+        );
+    auto test_aperture = std::make_shared<EMCore::AP_SlotAperture>(
+        1, 0, 1, aa, b, l, ww, t
+        );
+    auto test_cavity1 = std::make_shared<EMCore::TL_EmptyCavity>(
+        1, 2, 2, aa, b, p
+        );
+    auto test_cavity2 = std::make_shared<EMCore::TL_EmptyCavity>(
+        2, 0, 3, aa, b, d - p
+        );
 
-    // Check if valid
-    std::string error_msg;
-    if (!cavity.isValid(error_msg)) {
-        std::cout << "ERROR: " << error_msg << "\n";
-        return -1;
-    }
-    std::cout << "Validation: PASSED\n\n";
+    std::cout << "Branch Descriptions:\n";
+    std::cout << "  Branch 0: " << test_src->getDescription() << "\n";
+    std::cout << "  Branch 1: " << test_aperture->getDescription() << "\n";
+    std::cout << "  Branch 2: " << test_cavity1->getDescription() << "\n";
+    std::cout << "  Branch 3: " << test_cavity2->getDescription() << "\n\n";
 
-    // Compute Y-parameters
-    std::cout << "Computing Y-parameters at f = " << f_test/1e9 << " GHz...\n\n";
-    auto Y = cavity.computeYParameters(f_test);
+    std::cout << "=== Individual Branch Y-Parameters @ " << f_test/1e9 << " GHz ===\n\n";
 
-    // Display results
-    std::cout << "Y-Matrix (2x2):\n";
-    std::cout << "Y11 = " << Y[0][0].real() << " + j*" << Y[0][0].imag() << " [S]\n";
-    std::cout << "Y12 = " << Y[0][1].real() << " + j*" << Y[0][1].imag() << " [S]\n";
-    std::cout << "Y21 = " << Y[1][0].real() << " + j*" << Y[1][0].imag() << " [S]\n";
-    std::cout << "Y22 = " << Y[1][1].real() << " + j*" << Y[1][1].imag() << " [S]\n\n";
-
-    // Magnitude and phase
-    std::cout << "Y-Parameter Properties:\n";
-    std::cout << "|Y11| = " << std::abs(Y[0][0]) << " S\n";
-    std::cout << "|Y12| = " << std::abs(Y[0][1]) << " S\n";
-    std::cout << "angle(Y11) = " << std::arg(Y[0][0]) * 180.0/M_PI << " degrees\n";
-    std::cout << "angle(Y12) = " << std::arg(Y[0][1]) * 180.0/M_PI << " degrees\n\n";
-
-    // Sanity checks
-    std::cout << "Sanity Checks:\n";
-    std::cout << "Y11 == Y22? " << (std::abs(Y[0][0] - Y[1][1]) < 1e-12 ? "YES" : "NO") << "\n";
-    std::cout << "Y12 == Y21? " << (std::abs(Y[0][1] - Y[1][0]) < 1e-12 ? "YES" : "NO") << "\n\n";
-
-    std::cout << "========================================\n";
-    std::cout << "NOW COMPARE WITH YOUR MATLAB OUTPUT!\n";
-    std::cout << "========================================\n";
-    */
-
-    /*
-
-    std::cout << std::fixed << std::setprecision(6);
-    std::cout << "========================================\n";
-    std::cout << "Branch Types Test\n";
-    std::cout << "========================================\n\n";
-
-    double f_test = 6.0e9;  // 6 GHz
-
-    // Test 1: Voltage Source
-    std::cout << "Test 1: Voltage Source\n";
-    EMCore::SRC_VoltageSource source(0, 1, 0, EMCore::Complex(1.0, 0.0), 120.0*M_PI);
-    std::cout << "  " << source.getDescription() << "\n";
-    auto Y_src = source.computeYParameters(f_test);
-    auto V_src = source.getVoltageSourceVector(f_test);
+    auto Y_src = test_src->computeYParameters(f_test);
+    std::cout << "Branch 0 (Source) Y-matrix:\n";
     std::cout << "  Y11 = " << Y_src[0][0] << " S\n";
-    std::cout << "  V_vec = [" << V_src[0] << ", " << V_src[1] << "]\n\n";
+    std::cout << "  Y12 = " << Y_src[0][1] << " S\n\n";
 
-    // Test 2: Empty Cavity
-    std::cout << "Test 2: Empty Cavity\n";
-    EMCore::TL_EmptyCavity cavity(1, 2, 1, 0.050, 0.025, 0.100);
-    std::cout << "  " << cavity.getDescription() << "\n";
-    auto Y_cav = cavity.computeYParameters(f_test);
-    std::cout << "  Y11 = " << Y_cav[0][0] << " S\n";
-    std::cout << "  Y12 = " << Y_cav[0][1] << " S\n\n";
+    auto Y_ap = test_aperture->computeYParameters(f_test);
+    std::cout << "Branch 1 (Aperture) Y-matrix:\n";
+    std::cout << "  Y11 = " << Y_ap[0][0] << " S\n";
+    std::cout << "  Y12 = " << Y_ap[0][1] << " S\n\n";
 
-    // Test 3: Load
-    std::cout << "Test 3: Load Impedance\n";
-    EMCore::LOAD_Impedance load(2, 0, 2, 50.0);  // 50 Ohm load
-    std::cout << "  " << load.getDescription() << "\n";
-    auto Y_load = load.computeYParameters(f_test);
-    std::cout << "  Y11 = " << Y_load[0][0] << " S\n\n";
+    auto Y_tl1 = test_cavity1->computeYParameters(f_test);
+    std::cout << "Branch 2 (TL1) Y-matrix:\n";
+    std::cout << "  Y11 = " << Y_tl1[0][0] << " S\n";
+    std::cout << "  Y12 = " << Y_tl1[0][1] << " S\n\n";
+
+    auto Y_tl2 = test_cavity2->computeYParameters(f_test);
+    std::cout << "Branch 3 (TL2) Y-matrix:\n";
+    std::cout << "  Y11 = " << Y_tl2[0][0] << " S\n";
+    std::cout << "  Y12 = " << Y_tl2[0][1] << " S\n\n";
+
+    test_solver.addBranch(test_src);
+    test_solver.addBranch(test_aperture);
+    test_solver.addBranch(test_cavity1);
+    test_solver.addBranch(test_cavity2);
+
+    std::cout << "=== MNA Solver Output ===\n\n";
+    auto U_test = test_solver.solve(f_test);
+
+    std::cout << "\n=== Final Results @ " << f_test/1e9 << " GHz ===\n";
+    std::cout << "V1 = " << U_test(0) << " V\n";
+    std::cout << "V2 = " << U_test(1) << " V\n";
+    double SE_test = -20.0 * std::log10(std::abs(2.0 * U_test(1)));
+    std::cout << "SE = " << SE_test << " dB\n";
+    std::cout << "(Compare with MATLAB output)\n\n";
+
+    // ========================================================================
+    // FREQUENCY SWEEP
+    // ========================================================================
+    FrequencySweepConfig config;
+    config.f_start = 1.0e9;
+    config.f_stop = 20.0e9;
+    config.num_points = 200;
+    config.log_spacing = false;
+
+    auto results = performFrequencySweep(config, aa, b, d, p, l, ww, t, Z_source);
+
+    // ========================================================================
+    // EXPORT RESULTS
+    // ========================================================================
+    std::string output_filename = "C:/Users/User/Desktop/Works/Cand/projets/em-shield-designer/SE_sweep_single_section_aperture.csv";
+    exportToCSV(results, output_filename);
 
     std::cout << "========================================\n";
-    std::cout << "All branch types compiled successfully!\n";
+    std::cout << "Summary:\n";
     std::cout << "========================================\n";
-    */
-
-    std::cout << std::fixed << std::setprecision(6);
-    std::cout << "========================================\n";
-    std::cout << "1-Section SE Calculator Test\n";
+    auto min_SE = *std::min_element(results.SE_dB.begin(), results.SE_dB.end());
+    auto max_SE = *std::max_element(results.SE_dB.begin(), results.SE_dB.end());
+    std::cout << "  Min SE: " << min_SE << " dB\n";
+    std::cout << "  Max SE: " << max_SE << " dB\n";
+    std::cout << "  Frequency range: " << config.f_start/1e9 << " - " << config.f_stop/1e9 << " GHz\n";
     std::cout << "========================================\n\n";
-
-    // Test frequency
-    double f_test = 6.0e9;  // 6 GHz
-
-    // Create MNA solver
-    EMCore::MNASolver solver;
-
-    // Add branches (must use shared_ptr for polymorphism)
-    auto src = std::make_shared<EMCore::SRC_VoltageSource>(
-        0, 1, 0, EMCore::Complex(1.0, 0.0), 120.0*M_PI
-        );
-
-    auto cavity = std::make_shared<EMCore::TL_EmptyCavity>(
-        1, 2, 1, 0.050, 0.025, 0.100
-        );
-
-    auto load = std::make_shared<EMCore::LOAD_Impedance>(
-        2, 0, 2, 50.0
-        );
-
-    solver.addBranch(src);
-    solver.addBranch(cavity);
-    solver.addBranch(load);
-
-    std::cout << "Circuit topology:\n";
-    std::cout << "  Node 0 (GND) -- [SRC] -- Node 1 -- [TL] -- Node 2 -- [LOAD] -- Node 0\n\n";
-
-    // Solve
-    std::cout << "Solving at f = " << f_test/1e9 << " GHz...\n\n";
-    auto U = solver.solve(f_test);
-
-    // Display results
-    std::cout << "Node Voltages:\n";
-    std::cout << "  V0 (ground) = 0 V (reference)\n";
-    std::cout << "  V1 = " << U(0).real() << " + j*" << U(0).imag() << " V\n";
-    std::cout << "  V2 = " << U(1).real() << " + j*" << U(1).imag() << " V\n\n";
-
-    // Compute shielding effectiveness: SE = 20*log10(V1/V2)
-    EMCore::Complex V1 = U(0);  // ← FIXED: Added EMCore::
-    EMCore::Complex V2 = U(1);  // ← FIXED: Added EMCore::
-    double SE_dB = 20.0 * std::log10(std::abs(V1 / V2));
-
-    std::cout << "Shielding Effectiveness:\n";
-    std::cout << "  |V1/V2| = " << std::abs(V1/V2) << "\n";
-    std::cout << "  SE = " << SE_dB << " dB\n\n";
-
-    std::cout << "========================================\n";
-
 
     return a.exec();
 }

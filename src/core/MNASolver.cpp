@@ -3,14 +3,21 @@
 #include <algorithm>
 #include <stdexcept>
 #include <iostream>
+#include <iomanip>
 
 namespace EMCore {
+
 using Complex = std::complex<double>;
 
-MNASolver::MNASolver() : max_node_index_(0) {}
+MNASolver::MNASolver()
+    : max_node_index_(0)
+    , debug_mode_(false)
+{}
 
 void MNASolver::addBranch(std::shared_ptr<BranchTemplate> branch) {
     branches_.push_back(branch);
+
+    // Update maximum node index
     max_node_index_ = std::max({max_node_index_,
                                 branch->getNodeFrom(),
                                 branch->getNodeTo()});
@@ -60,8 +67,19 @@ Eigen::MatrixXcd MNASolver::buildBranchYMatrix(double f_Hz) {
     Eigen::MatrixXcd Y = Eigen::MatrixXcd::Zero(2 * N_branches, 2 * N_branches);
 
     for (int k = 0; k < N_branches; ++k) {
+        // Get Y-parameters for this branch
         auto Y_branch = branches_[k]->computeYParameters(f_Hz);
 
+        // Validate Y-matrix dimensions
+        if (Y_branch.size() != 2 || Y_branch[0].size() != 2 || Y_branch[1].size() != 2) {
+            throw std::runtime_error(
+                "Branch " + std::to_string(branches_[k]->getBranchID()) +
+                " (" + branches_[k]->getDescription() + ")" +
+                " returned invalid Y-matrix dimensions (expected 2×2)"
+                );
+        }
+
+        // Fill 2×2 block in global Y matrix
         int idx = 2 * k;
         Y(idx,     idx)     = Y_branch[0][0];  // Y11
         Y(idx,     idx + 1) = Y_branch[0][1];  // Y12
@@ -80,6 +98,15 @@ Eigen::VectorXcd MNASolver::buildSourceVector(double f_Hz) {
 
     for (int k = 0; k < N_branches; ++k) {
         auto V_branch = branches_[k]->getVoltageSourceVector(f_Hz);
+
+        // Validate vector size
+        if (V_branch.size() != 2) {
+            throw std::runtime_error(
+                "Branch " + std::to_string(branches_[k]->getBranchID()) +
+                " returned invalid source vector size (expected 2)"
+                );
+        }
+
         V_vec(2 * k)     = V_branch[0];
         V_vec(2 * k + 1) = V_branch[1];
     }
@@ -88,8 +115,17 @@ Eigen::VectorXcd MNASolver::buildSourceVector(double f_Hz) {
 }
 
 Eigen::VectorXcd MNASolver::solve(double f_Hz) {
+    // Validation
     if (branches_.empty()) {
-        throw std::runtime_error("No branches added to MNA solver");
+        throw std::runtime_error("MNASolver: No branches added to system");
+    }
+
+    if (f_Hz <= 0) {
+        throw std::runtime_error("MNASolver: Frequency must be positive");
+    }
+
+    if (max_node_index_ == 0) {
+        throw std::runtime_error("MNASolver: No valid nodes found (all nodes are ground?)");
     }
 
     // Build system matrices
@@ -98,15 +134,77 @@ Eigen::VectorXcd MNASolver::solve(double f_Hz) {
     Eigen::MatrixXcd Y = buildBranchYMatrix(f_Hz);    // [2N × 2N]
     Eigen::VectorXcd V_vec = buildSourceVector(f_Hz); // [2N × 1]
 
+    // Debug output (if enabled)
+    if (debug_mode_) {
+        std::cout << std::fixed << std::setprecision(6);
+        std::cout << "\n╔════════════════════════════════════════════════════════════╗\n";
+        std::cout << "║  MNA System Debug Output @ f = " << f_Hz/1e9 << " GHz" << std::setw(20) << "║\n";
+        std::cout << "╚════════════════════════════════════════════════════════════╝\n\n";
+
+        std::cout << "System dimensions:\n";
+        std::cout << "  Branches: " << branches_.size() << "\n";
+        std::cout << "  Nodes (excl. GND): " << getNumNodes() << "\n";
+        std::cout << "  Y-matrix size: " << Y.rows() << "×" << Y.cols() << "\n";
+        std::cout << "  A-matrix size: " << A.rows() << "×" << A.cols() << "\n\n";
+
+        std::cout << "Branch descriptions:\n";
+        for (size_t k = 0; k < branches_.size(); ++k) {
+            std::cout << "  Branch " << k << ": " << branches_[k]->getDescription() << "\n";
+            std::cout << "    Nodes: " << branches_[k]->getNodeFrom()
+                      << " → " << branches_[k]->getNodeTo() << "\n";
+        }
+        std::cout << "\n";
+
+        std::cout << "Incidence matrix A^T [" << A.rows() << "×" << A.cols() << "]:\n";
+        std::cout << A << "\n\n";
+
+        std::cout << "Branch Y-matrix (block diagonal) [" << Y.rows() << "×" << Y.cols() << "]:\n";
+        std::cout << Y << "\n\n";
+
+        std::cout << "Source vector V_vec:\n" << V_vec << "\n\n";
+    }
+
     // Convert A to complex
     Eigen::MatrixXcd A_complex = A.cast<Complex>();
 
-    // MNA equation: A * Y * A^T * U = A * Y * V_vec
+    // MNA equation: A * Y * A^T * U = -A * Y * V_vec
+    //                                  ↑ NEGATIVE SIGN!
     Eigen::MatrixXcd LHS = A_complex * Y * A_complex.transpose();
-    Eigen::VectorXcd RHS = A_complex * Y * V_vec;
+    Eigen::VectorXcd RHS = -A_complex * Y * V_vec;  // ← FIXED! Added negative sign
 
-    // Solve for node voltages
+    if (debug_mode_) {
+        std::cout << "Reduced system (A·Y·A^T) [" << LHS.rows() << "×" << LHS.cols() << "]:\n";
+        std::cout << LHS << "\n\n";
+
+        std::cout << "Reduced RHS (-A·Y·V_vec):\n" << RHS << "\n\n";  // ← Updated label
+    }
+
+    // Solve for node voltages using QR decomposition
     Eigen::VectorXcd U = LHS.colPivHouseholderQr().solve(RHS);
+
+    // Verify solution quality
+    double relative_error = (LHS * U - RHS).norm() / RHS.norm();
+
+    if (debug_mode_) {
+        std::cout << "Solution node voltages U:\n" << U << "\n\n";
+        std::cout << "Relative error: " << relative_error << "\n";
+
+        if (relative_error > 1e-6) {
+            std::cout << "⚠ WARNING: High relative error in solution!\n";
+        }
+
+        std::cout << "════════════════════════════════════════════════════════════\n\n";
+    }
+
+    // Warn if solution quality is poor
+    if (relative_error > 1e-3) {
+        std::cerr << "WARNING: MNA solution has high relative error ("
+                  << relative_error << ")\n";
+        std::cerr << "         Solution may be inaccurate. Check for:\n";
+        std::cerr << "         - Singular or near-singular system matrix\n";
+        std::cerr << "         - Ill-conditioned branches (very large/small impedances)\n";
+        std::cerr << "         - Numerical issues at this frequency\n";
+    }
 
     return U;
 }

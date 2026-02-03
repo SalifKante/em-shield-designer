@@ -21,17 +21,26 @@ public:
 
     std::vector<std::vector<Complex>> computeYParameters(double f_Hz) const override {
         // Series impedance Zs
-        // Y-parameters: Y11 = Y22 = 1/Zs, Y12 = Y21 = -1/Zs
-
+        // Y-parameters for series impedance: Y11 = Y22 = 1/Zs, Y12 = Y21 = -1/Zs
         Complex Y_s = 1.0 / m_Zs;
 
-        return {{Y_s, -Y_s},   // [Y11, Y12] ← FIXED!
-                {-Y_s, Y_s}};  // [Y21, Y22] ← FIXED!
+        return {{Y_s, -Y_s},   // [Y11, Y12]
+                {-Y_s, Y_s}};  // [Y21, Y22]
     }
 
     std::vector<Complex> getVoltageSourceVector(double f_Hz) const override {
-        // Voltage appears at terminal A (port 1)
-        return {m_V_inc, Complex(0.0, 0.0)};
+        // FIXED: Voltage source convention for standard MNA
+        //
+        // Branch connects: node_from (terminal 1) → node_to (terminal 2)
+        // For this source: Node 0 (GND, terminal 1) → Node 1 (terminal 2)
+        //
+        // The voltage V_inc appears between the terminals such that:
+        // V_terminal2 - V_terminal1 = V_inc
+        //
+        // Since terminal 1 is at GND (V=0), we put V_inc on terminal 2
+
+        return {Complex(0.0, 0.0), m_V_inc};
+        //      ↑ terminal 1 (GND)  ↑ terminal 2 (active node, receives voltage)
     }
 
     bool isValid(std::string& error_msg) const override {
@@ -50,16 +59,17 @@ public:
         return std::string(buf);
     }
 
+    // Getters and setters
     Complex getVoltage() const { return m_V_inc; }
     double getSourceImpedance() const { return m_Zs; }
     void setVoltage(Complex V) { m_V_inc = V; }
     void setSourceImpedance(double Zs) { m_Zs = Zs; }
 
 private:
-    Complex m_V_inc;
-    double m_Zs;
+    Complex m_V_inc;  // Incident voltage [V]
+    double m_Zs;      // Source impedance [Ω]
 };
 
 } // namespace EMCore
 
-#endif
+#endif // SRC_VOLTAGESOURCE_H
