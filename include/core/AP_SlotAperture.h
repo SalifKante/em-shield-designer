@@ -5,6 +5,8 @@
 #include "PhysicsConstants.h"
 #include <cmath>
 #include <complex>
+#include <iostream>
+#include <iomanip>
 
 namespace EMCore {
 
@@ -38,8 +40,6 @@ public:
             errorMsg = "Aperture: dimensions must be positive";
             return false;
         }
-        // REMOVED the check: if (l_ > a_ || w_ > b_)
-        // Because MATLAB allows ke > 1 with complex arithmetic
 
         if (t_ <= 0) {
             errorMsg = "Aperture: wall thickness must be positive";
@@ -59,14 +59,66 @@ public:
         double lambda = C_LIGHT / f_Hz;  // Wavelength [m]
         Complex jUnit(0.0, 1.0);
 
+        // ====================================================================
+        // DETAILED DEBUG OUTPUT
+        // ====================================================================
+        std::cout << "\n╔════════════════════════════════════════════════════════════╗\n";
+        std::cout << "║        AP_SlotAperture::computeYParameters DEBUG          ║\n";
+        std::cout << "╚════════════════════════════════════════════════════════════╝\n\n";
+
+        std::cout << std::fixed << std::setprecision(9);
+        std::cout << "Input Parameters:\n";
+        std::cout << "  Frequency:        f = " << f_Hz << " Hz (" << f_Hz/1e9 << " GHz)\n";
+        std::cout << "  Wavelength:       λ = " << lambda << " m\n";
+        std::cout << "  Enclosure width:  a = " << a_ << " m (" << a_*1000 << " mm)\n";
+        std::cout << "  Aperture width:   l = " << l_ << " m (" << l_*1000 << " mm)\n";
+        std::cout << "  Slot impedance:  Z0s = " << Z0s_ << " Ω\n\n";
+
+        // Step 1: Geometric factor
         double geometric_factor = (2.0 * a_) / l_;
+        std::cout << "Step 1: Geometric Factor\n";
+        std::cout << "  geometric_factor = 2*a/l\n";
+        std::cout << "                   = 2 * " << a_ << " / " << l_ << "\n";
+        std::cout << "                   = " << geometric_factor << "\n\n";
+
+        // Step 2: Slot admittance
         Complex slot_admittance = 1.0 / (jUnit * Z0s_);
+        std::cout << "Step 2: Slot Admittance\n";
+        std::cout << "  slot_admittance = 1 / (j * Z0s)\n";
+        std::cout << "                  = 1 / (j * " << Z0s_ << ")\n";
+        std::cout << "                  = 1 / " << (jUnit * Z0s_) << "\n";
+        std::cout << "                  = " << slot_admittance << " S\n";
+        std::cout << "                  = (" << slot_admittance.real() << ", "
+                  << slot_admittance.imag() << ") S\n\n";
 
-        // Cotangent calculation
+        // Step 3: Cotangent term
         double arg = M_PI * l_ / lambda;
-        double cot_term = 1.0 / std::tan(arg);  // cot(x) = 1/tan(x)
+        std::cout << "Step 3: Cotangent Calculation\n";
+        std::cout << "  arg = π * l / λ\n";
+        std::cout << "      = π * " << l_ << " / " << lambda << "\n";
+        std::cout << "      = " << arg << " rad\n";
+        std::cout << "      = " << arg * 180.0 / M_PI << " degrees\n";
+        std::cout << "  tan(arg) = " << std::tan(arg) << "\n";
 
+        double cot_term = 1.0 / std::tan(arg);
+        std::cout << "  cot(arg) = 1 / tan(arg)\n";
+        std::cout << "           = " << cot_term << "\n\n";
+
+        // Step 4: Final Y_ap
         Complex Y_ap = geometric_factor * slot_admittance * cot_term;
+        std::cout << "Step 4: Final Aperture Admittance\n";
+        std::cout << "  Y_ap = geometric_factor * slot_admittance * cot_term\n";
+        std::cout << "       = " << geometric_factor << " * " << slot_admittance << " * " << cot_term << "\n";
+        std::cout << "       = " << Y_ap << " S\n";
+        std::cout << "       = (" << Y_ap.real() << ", " << Y_ap.imag() << ") S\n";
+        std::cout << "       = " << std::scientific << std::setprecision(6)
+                  << Y_ap.real() << " " << (Y_ap.imag() >= 0 ? "+" : "") << Y_ap.imag() << "j S\n";
+
+        std::cout << "\n2×2 Y-Matrix (shunt form):\n";
+        std::cout << std::fixed << std::setprecision(6);
+        std::cout << "  [ " << Y_ap << "   " << -Y_ap << " ]\n";
+        std::cout << "  [ " << -Y_ap << "   " << Y_ap << " ]\n";
+        std::cout << "════════════════════════════════════════════════════════════\n\n";
 
         // For shunt admittance between two nodes:
         return {
@@ -78,6 +130,9 @@ public:
     std::vector<Complex> getVoltageSourceVector(double f_Hz) const override {
         return {Complex(0.0, 0.0), Complex(0.0, 0.0)};
     }
+
+    // Getter for slot-line impedance (for external debugging)
+    double getSlotLineImpedance() const { return Z0s_; }
 
 private:
     double a_;   // Enclosure width [m]
@@ -121,30 +176,41 @@ private:
         // Take real part for Z0s (imaginary part should be small or zero)
         Z0s_ = 120.0 * M_PI * K_complex.real();
 
-// Debug output
-#ifdef DEBUG_APERTURE
-        std::cout << "\n=== Aperture Slot-Line Impedance Calculation ===\n";
-        std::cout << "Input parameters:\n";
-        std::cout << "  w = " << w_*1000 << " mm (aperture height)\n";
-        std::cout << "  b = " << b_*1000 << " mm (enclosure height)\n";
-        std::cout << "  t = " << t_*1000 << " mm (wall thickness)\n";
-        std::cout << "  l = " << l_*1000 << " mm (aperture width)\n";
-        std::cout << "  a = " << a_*1000 << " mm (enclosure width)\n\n";
+        // Debug output for slot-line impedance calculation
+        std::cout << "\n╔════════════════════════════════════════════════════════════╗\n";
+        std::cout << "║     Slot-Line Impedance Calculation (Cohn's Formula)      ║\n";
+        std::cout << "╚════════════════════════════════════════════════════════════╝\n\n";
 
-        std::cout << "Intermediate values:\n";
-        std::cout << "  we = " << we*1000 << " mm (effective width)\n";
-        std::cout << "  ke = " << ke << " (aspect ratio)\n";
-        std::cout << "  Note: ke > 1 causes complex arithmetic!\n\n";
+        std::cout << std::fixed << std::setprecision(6);
+        std::cout << "Input Parameters:\n";
+        std::cout << "  Aperture height:    w = " << w_*1000 << " mm\n";
+        std::cout << "  Enclosure height:   b = " << b_*1000 << " mm\n";
+        std::cout << "  Wall thickness:     t = " << t_*1000 << " mm\n";
+        std::cout << "  Aperture width:     l = " << l_*1000 << " mm\n";
+        std::cout << "  Enclosure width:    a = " << a_*1000 << " mm\n\n";
 
-        std::cout << "  (1-ke²) = " << one_minus_ke2 << "\n";
-        std::cout << "  (1-ke²)^(1/4) = " << fourth_root << "\n";
+        std::cout << "Intermediate Calculations:\n";
+        std::cout << "  Effective width:  we = " << we*1000 << " mm\n";
+        std::cout << "  Aspect ratio:     ke = we/b = " << ke << "\n";
+
+        if (ke > 1.0) {
+            std::cout << "  ⚠️  Note: ke > 1 requires complex arithmetic!\n";
+        }
+
+        std::cout << "\n  (1 - ke²) = " << one_minus_ke2 << "\n";
+        std::cout << "  (1 - ke²)^(1/4) = " << fourth_root << "\n";
         std::cout << "  K (complex) = " << K_complex << "\n";
-        std::cout << "  K (real part) = " << K_complex.real() << "\n\n";
+        std::cout << "  K (real part) = " << K_complex.real() << "\n";
 
-        std::cout << "Final result:\n";
-        std::cout << "  Z0s = " << Z0s_ << " Ω\n";
-        std::cout << "===============================================\n\n";
-#endif
+        if (std::abs(K_complex.imag()) > 1e-6) {
+            std::cout << "  ⚠️  K has significant imaginary part: " << K_complex.imag() << "\n";
+        }
+
+        std::cout << "\nFinal Result:\n";
+        std::cout << "  Z0s = 120π * K_real\n";
+        std::cout << "      = " << 120.0 * M_PI << " * " << K_complex.real() << "\n";
+        std::cout << "      = " << Z0s_ << " Ω\n";
+        std::cout << "════════════════════════════════════════════════════════════\n\n";
     }
 };
 

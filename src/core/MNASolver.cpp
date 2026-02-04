@@ -36,7 +36,8 @@ Eigen::MatrixXd MNASolver::buildIncidenceMatrix() {
     int N_branches = branches_.size();
     int M_nodes = getNumNodes();
 
-    // A is [2*N_branches × M_nodes] - TWO ROWS PER BRANCH (one per terminal)
+    // A_temp is [2*N_branches × M_nodes] - TWO ROWS PER BRANCH (one per terminal)
+    // This follows MATLAB convention: A_temp = zeros(8, 2) before transpose
     Eigen::MatrixXd A = Eigen::MatrixXd::Zero(2 * N_branches, M_nodes);
 
     for (int k = 0; k < N_branches; ++k) {
@@ -49,7 +50,7 @@ Eigen::MatrixXd MNASolver::buildIncidenceMatrix() {
         int row_to = 2 * k + 1;
 
         // Voltage at terminal = voltage at node
-        if (node_from > 0) {  // Not ground
+        if (node_from > 0) {  // Not ground (ground = node 0)
             A(row_from, node_from - 1) = 1.0;
         }
         if (node_to > 0) {  // Not ground
@@ -115,7 +116,9 @@ Eigen::VectorXcd MNASolver::buildSourceVector(double f_Hz) {
 }
 
 Eigen::VectorXcd MNASolver::solve(double f_Hz) {
-    // Validation
+    // ========================================================================
+    // VALIDATION
+    // ========================================================================
     if (branches_.empty()) {
         throw std::runtime_error("MNASolver: No branches added to system");
     }
@@ -128,13 +131,24 @@ Eigen::VectorXcd MNASolver::solve(double f_Hz) {
         throw std::runtime_error("MNASolver: No valid nodes found (all nodes are ground?)");
     }
 
-    // Build system matrices
+    // ========================================================================
+    // BUILD SYSTEM MATRICES
+    // ========================================================================
+
+    // Build incidence matrix [2N × M] then transpose to [M × 2N]
+    // This matches MATLAB: A_temp = zeros(8,2); A = A_temp';
     Eigen::MatrixXd A_temp = buildIncidenceMatrix();  // [2N × M]
     Eigen::MatrixXd A = A_temp.transpose();            // [M × 2N] ← TRANSPOSE!
-    Eigen::MatrixXcd Y = buildBranchYMatrix(f_Hz);    // [2N × 2N]
-    Eigen::VectorXcd V_vec = buildSourceVector(f_Hz); // [2N × 1]
 
-    // Debug output (if enabled)
+    // Build branch Y-matrix [2N × 2N] (block diagonal)
+    Eigen::MatrixXcd Y = buildBranchYMatrix(f_Hz);
+
+    // Build source vector [2N × 1]
+    Eigen::VectorXcd V_vec = buildSourceVector(f_Hz);
+
+    // ========================================================================
+    // DEBUG OUTPUT (OPTIONAL)
+    // ========================================================================
     if (debug_mode_) {
         std::cout << std::fixed << std::setprecision(6);
         std::cout << "\n╔════════════════════════════════════════════════════════════╗\n";
@@ -155,39 +169,50 @@ Eigen::VectorXcd MNASolver::solve(double f_Hz) {
         }
         std::cout << "\n";
 
-        std::cout << "Incidence matrix A^T [" << A.rows() << "×" << A.cols() << "]:\n";
+        std::cout << "Incidence matrix A [" << A.rows() << "×" << A.cols() << "]:\n";
         std::cout << A << "\n\n";
 
         std::cout << "Branch Y-matrix (block diagonal) [" << Y.rows() << "×" << Y.cols() << "]:\n";
         std::cout << Y << "\n\n";
 
-        std::cout << "Source vector V_vec:\n" << V_vec << "\n\n";
+        std::cout << "Source vector V_vec [" << V_vec.size() << "×1]:\n";
+        std::cout << V_vec << "\n\n";
     }
 
-    // Convert A to complex
+    // ========================================================================
+    // SOLVE MNA SYSTEM
+    // ========================================================================
+
+    // Convert A to complex for matrix operations
     Eigen::MatrixXcd A_complex = A.cast<Complex>();
 
-    // MNA equation: A * Y * A^T * U = -A * Y * V_vec
-    //                                  ↑ NEGATIVE SIGN!
-    Eigen::MatrixXcd LHS = A_complex * Y * A_complex.transpose();
-    Eigen::VectorXcd RHS = -A_complex * Y * V_vec;  // ← FIXED! Added negative sign
+    // MNA equation (standard formulation):
+    // A * Y * A^T * U = -A * Y * V_vec
+    //                    ↑ NEGATIVE SIGN (standard MNA convention)
+
+    Eigen::MatrixXcd LHS = A_complex * Y * A_complex.transpose();  // [M×2N]*[2N×2N]*[2N×M] = [M×M]
+    Eigen::VectorXcd RHS = -A_complex * Y * V_vec;                 // -[M×2N]*[2N×2N]*[2N×1] = [M×1]
 
     if (debug_mode_) {
-        std::cout << "Reduced system (A·Y·A^T) [" << LHS.rows() << "×" << LHS.cols() << "]:\n";
+        std::cout << "Reduced system LHS (A·Y·A^T) [" << LHS.rows() << "×" << LHS.cols() << "]:\n";
         std::cout << LHS << "\n\n";
 
-        std::cout << "Reduced RHS (-A·Y·V_vec):\n" << RHS << "\n\n";  // ← Updated label
+        std::cout << "Reduced system RHS (-A·Y·V_vec) [" << RHS.size() << "×1]:\n";
+        std::cout << RHS << "\n\n";
     }
 
-    // Solve for node voltages using QR decomposition
+    // Solve for node voltages using QR decomposition (robust solver)
     Eigen::VectorXcd U = LHS.colPivHouseholderQr().solve(RHS);
 
-    // Verify solution quality
+    // ========================================================================
+    // VERIFY SOLUTION QUALITY
+    // ========================================================================
     double relative_error = (LHS * U - RHS).norm() / RHS.norm();
 
     if (debug_mode_) {
-        std::cout << "Solution node voltages U:\n" << U << "\n\n";
-        std::cout << "Relative error: " << relative_error << "\n";
+        std::cout << "Solution node voltages U [" << U.size() << "×1]:\n";
+        std::cout << U << "\n\n";
+        std::cout << "Relative error: " << std::scientific << relative_error << "\n";
 
         if (relative_error > 1e-6) {
             std::cout << "⚠ WARNING: High relative error in solution!\n";

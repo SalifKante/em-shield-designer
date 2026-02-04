@@ -4,6 +4,7 @@ project(em-shield-designer LANGUAGES CXX)
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets)
 # Add Eigen include path (header-only library, no compilation needed)
 include_directories(${CMAKE_SOURCE_DIR}/external/eigen/eigen-5.0.0)
+add_definitions(-DDEBUG_APERTURE)
 
 qt_standard_project_setup()
 
