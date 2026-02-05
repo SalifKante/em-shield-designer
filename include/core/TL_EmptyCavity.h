@@ -70,82 +70,107 @@ public:
     }
 
     // ========================================================================
-    // Y-PARAMETER COMPUTATION
+    // Y-PARAMETER COMPUTATION (MATLAB-COMPATIBLE)
     // ========================================================================
 
     std::vector<std::vector<Complex>> computeYParameters(double f_Hz) const override {
         using namespace std::complex_literals;  // Enable 1i notation
 
         // --------------------------------------------------------------------
-        // STEP 1: Check if below cutoff
-        // --------------------------------------------------------------------
-        if (f_Hz < m_f_c10) {
-            // Evanescent mode: return very small admittance
-            // (Physically, waves decay exponentially and don't propagate)
-            const double Y_small = 1e-12;
-            return {
-                {Complex(Y_small, 0.0), Complex(0.0, 0.0)},
-                {Complex(0.0, 0.0),     Complex(Y_small, 0.0)}
-            };
-        }
-
-        // --------------------------------------------------------------------
-        // STEP 2: Free-space wavenumber and wavelength
+        // STEP 1: Free-space wavenumber and wavelength
         // --------------------------------------------------------------------
         double lambda = C_LIGHT / f_Hz;           // Free-space wavelength [m]
         double k0 = (2.0 * M_PI) / lambda;        // Free-space wavenumber [rad/m]
 
         // --------------------------------------------------------------------
-        // STEP 3: Propagation constant (waveguide)
+        // STEP 2: Propagation constant (waveguide) - MATLAB COMPATIBLE
         // --------------------------------------------------------------------
-        // kg = k₀·√(1 - (λ/λc)²) = k₀·√(1 - (fc/f)²)
+        // kg = k₀·√(1 - (λ/λc)²)  [above cutoff, real]
+        // kg = j·k₀·√((λ/λc)² - 1) [below cutoff, imaginary] - MATCHES MATLAB!
         //
-        // Note: Using λ/λc formulation is equivalent to fc/f but more
-        // numerically stable when f >> fc
+        // Note: MATLAB continues calculations even below cutoff, using
+        // imaginary propagation constant for evanescent mode.
 
-        double ratio = lambda / m_lambda_c;                 // λ/λc
-        double sqrt_term = std::sqrt(1.0 - ratio * ratio);  // √(1 - (λ/λc)²)
+        double ratio = lambda / m_lambda_c;       // λ/λc
+        std::complex<double> kg;                  // Complex propagation constant
 
-        // Alternative: Use frequency ratio (matches MATLAB exactly)
-        // double freq_ratio = m_f_c10 / f_Hz;              // fc/f
-        // double sqrt_term = std::sqrt(1.0 - freq_ratio * freq_ratio);
+        if (f_Hz >= m_f_c10) {
+            // Above cutoff: propagating mode (kg is real)
+            double sqrt_term = std::sqrt(1.0 - ratio * ratio);
+            kg = k0 * sqrt_term;                  // Real value
+        } else {
+            // Below cutoff: evanescent mode (kg is imaginary)
+            // MATCHES MATLAB: kg = j * k0 * sqrt((λ/λc)² - 1)
+            double sqrt_term = std::sqrt(ratio * ratio - 1.0);
+            kg = 1.0i * k0 * sqrt_term;           // Purely imaginary
+        }
 
-        double kg = k0 * sqrt_term;                         // Propagation constant [rad/m]
-        double beta = kg * m_L;                             // Electrical length [rad]
+        double beta_real = kg.real() * m_L;       // Real part of electrical length
+        double beta_imag = kg.imag() * m_L;       // Imag part of electrical length
+        std::complex<double> beta(beta_real, beta_imag);
 
         // --------------------------------------------------------------------
-        // STEP 4: WAVEGUIDE IMPEDANCE (Russian Theory - Equation 3.17)
+        // STEP 3: WAVEGUIDE IMPEDANCE (Russian Theory - Equation 3.17)
         // --------------------------------------------------------------------
         // Zg = (2πf·μ₀) / kg = ωμ₀ / kg
+        // Note: kg can be complex (for evanescent mode), so Zg will be complex
         //
         // Physical interpretation:
         //   - For TE modes, Zg increases as frequency approaches cutoff
         //   - At cutoff (kg→0), Zg→∞ (no propagation)
-        //   - High above cutoff, Zg ≈ η₀ = 377 Ω (free-space impedance)
+        //   - Below cutoff, Zg is complex (reactive impedance)
 
         double omega = 2.0 * M_PI * f_Hz;
-        double Zg = (omega * MU_0) / kg;
+        std::complex<double> Zg = (omega * MU_0) / kg;  // Complex for evanescent
 
         // --------------------------------------------------------------------
-        // STEP 5: Y-PARAMETERS (Russian Theory - Equations 3.14, 3.15)
+        // STEP 4: Y-PARAMETERS (Russian Theory - Equations 3.14, 3.15)
         // --------------------------------------------------------------------
         // Y11 = Y22 = 1 / (j·Zg·tan(kg·L))     [Eq 3.14]
         // Y12 = 1 / (Zg·sin(kg·L))             [Eq 3.15]
         // Y21 = -Y12                            [Eq 3.15, explicit negative!]
         //
-        // Physical interpretation:
-        //   - Y11, Y22: Input/output admittance (imaginary = reactive)
-        //   - Y12, Y21: Transfer admittance (transmission between ports)
-        //   - Negative Y21 is Russian convention (standard would be Y21 = Y12)
+        // Important: For evanescent mode, tan(kg·L) and sin(kg·L) become
+        // hyperbolic functions due to imaginary argument.
+        // MATLAB handles this automatically with complex arithmetic.
 
-        Complex Y11 = 1.0 / (1.0i * Zg * std::tan(beta));
-        Complex Y12 = 1.0 / (Zg * std::sin(beta));
-        Complex Y21 = -Y12;  // Russian convention: Y21 = -Y12
-        Complex Y22 = Y11;
+        std::complex<double> tan_beta = std::tan(beta);
+        std::complex<double> sin_beta = std::sin(beta);
+
+        // Handle numerical issues near singularities
+        const double EPS = 1e-12;
+        if (std::abs(tan_beta) < EPS) {
+            tan_beta = std::complex<double>(EPS, 0.0);
+        }
+        if (std::abs(sin_beta) < EPS) {
+            sin_beta = std::complex<double>(EPS, 0.0);
+        }
+
+        std::complex<double> Y11 = 1.0 / (1.0i * Zg * tan_beta);
+        std::complex<double> Y12 = 1.0 / (Zg * sin_beta);
+        std::complex<double> Y21 = -Y12;  // Russian convention: Y21 = -Y12
+        std::complex<double> Y22 = Y11;
+
+        // --------------------------------------------------------------------
+        // STEP 5: DEBUG OUTPUT (for validation)
+        // --------------------------------------------------------------------
+        // Uncomment for debugging evanescent mode calculations
+        /*
+        if (f_Hz < m_f_c10 && f_Hz > 1e5) {  // Below cutoff, but not too low
+            std::cout << "\n[DEBUG TL_EmptyCavity] f = " << f_Hz/1e6 << " MHz < fc = "
+                      << m_f_c10/1e6 << " MHz (evanescent)\n";
+            std::cout << "  kg = " << kg << " rad/m\n";
+            std::cout << "  Zg = " << Zg << " Ω\n";
+            std::cout << "  tan(kg*L) = " << tan_beta << "\n";
+            std::cout << "  sin(kg*L) = " << sin_beta << "\n";
+            std::cout << "  Y11 = " << Y11 << " S\n";
+            std::cout << "  Y12 = " << Y12 << " S\n";
+        }
+        */
 
         return {
-            {Y11, Y12},
-            {Y21, Y22}
+            {Complex(Y11.real(), Y11.imag()), Complex(Y12.real(), Y12.imag())},
+            {Complex(Y21.real(), Y21.imag()), Complex(Y22.real(), Y22.imag())}
         };
     }
 
@@ -230,11 +255,27 @@ public:
 
     // Convenience methods
     bool isPropagating(double f_Hz) const { return f_Hz >= m_f_c10; }
+
     double getGuidedWavelength(double f_Hz) const {
-        if (f_Hz < m_f_c10) return 0.0;  // Evanescent
+        if (f_Hz < m_f_c10) return 0.0;  // Evanescent (infinite decay length)
         double lambda_0 = C_LIGHT / f_Hz;
         double ratio = m_f_c10 / f_Hz;
         return lambda_0 / std::sqrt(1.0 - ratio * ratio);
+    }
+
+    // Get propagation constant (complex, matches MATLAB)
+    std::complex<double> getPropagationConstant(double f_Hz) const {
+        double lambda = C_LIGHT / f_Hz;
+        double k0 = (2.0 * M_PI) / lambda;
+        double ratio = lambda / m_lambda_c;
+
+        if (f_Hz >= m_f_c10) {
+            double sqrt_term = std::sqrt(1.0 - ratio * ratio);
+            return k0 * sqrt_term;  // Real
+        } else {
+            double sqrt_term = std::sqrt(ratio * ratio - 1.0);
+            return std::complex<double>(0.0, k0 * sqrt_term);  // Imaginary
+        }
     }
 
 private:
