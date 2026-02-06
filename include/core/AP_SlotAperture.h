@@ -131,8 +131,32 @@ public:
         return {Complex(0.0, 0.0), Complex(0.0, 0.0)};
     }
 
+    // ========================================================================
+    // PUBLIC ACCESSORS (for external use)
+    // ========================================================================
+
     // Getter for slot-line impedance (for external debugging)
     double getSlotLineImpedance() const { return Z0s_; }
+
+    // Public geometry getters
+    double getEnclosureWidth() const { return a_; }
+    double getEnclosureHeight() const { return b_; }
+    double getApertureWidth() const { return l_; }
+    double getApertureHeight() const { return w_; }
+    double getWallThickness() const { return t_; }
+
+protected:
+    // ========================================================================
+    // PROTECTED ACCESSORS (for derived classes like AP_SlotWithCover)
+    // ========================================================================
+
+    // These allow derived classes to access private members
+    double getEnclosureWidthImpl() const { return a_; }
+    double getEnclosureHeightImpl() const { return b_; }
+    double getApertureWidthImpl() const { return l_; }
+    double getApertureHeightImpl() const { return w_; }
+    double getWallThicknessImpl() const { return t_; }
+    double getSlotLineImpedanceImpl() const { return Z0s_; }
 
 private:
     double a_;   // Enclosure width [m]

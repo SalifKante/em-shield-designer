@@ -6,9 +6,11 @@
 #include "../include/core/PhysicsConstants.h"
 #include "../include/core/BranchTemplate.h"
 #include "../include/core/TL_EmptyCavity.h"
+#include "../include/core/TL_DielectricCavity.h"
 #include "../include/core/SRC_VoltageSource.h"
 #include "../include/core/LOAD_Impedance.h"
 #include "../include/core/AP_SlotAperture.h"
+#include "../include/core/AP_SlotWithCover.h"
 #include "../include/core/MNASolver.h"
 
 #include <iostream>
@@ -17,18 +19,27 @@
 #include <vector>
 #include <filesystem>
 #include <numeric>
+#include <memory>
 
 #ifdef _WIN32
 #include <windows.h>
 #endif
 
-#include <memory>
+using namespace EMCore;
+
+// ============================================================================
+// TEST FUNCTION DECLARATIONS
+// ============================================================================
+void testDielectricCavity();
+void testApertureWithCover();
+void testCompleteSystem();
 
 // ============================================================================
 // DEBUG CONTROL FLAGS
 // ============================================================================
 constexpr bool ENABLE_SINGLE_POINT_TEST = true;   // Run validation test
 constexpr bool ENABLE_FREQUENCY_SWEEP = true;     // Run full sweep
+constexpr bool ENABLE_NEW_TESTS = true;           // Run dielectric & cover tests
 
 // ============================================================================
 // FREQUENCY SWEEP CONFIGURATION
@@ -47,8 +58,8 @@ struct FrequencySweepConfig {
 // ============================================================================
 struct FrequencySweepResults {
     std::vector<double> frequencies;
-    std::vector<EMCore::Complex> V1;
-    std::vector<EMCore::Complex> V2;
+    std::vector<Complex> V1;
+    std::vector<Complex> V2;
     std::vector<double> SE_dB;
 };
 
@@ -87,19 +98,19 @@ FrequencySweepResults performFrequencySweep(
     double L1 = p;
     double L2 = d - p;
 
-    EMCore::MNASolver solver;
+    MNASolver solver;
 
     // Create branches in correct order (matching MATLAB)
-    auto src = std::make_shared<EMCore::SRC_VoltageSource>(
-        0, 1, 0, EMCore::Complex(1.0, 0.0), Z_source);
+    auto src = std::make_shared<SRC_VoltageSource>(
+        0, 1, 0, Complex(1.0, 0.0), Z_source);
 
-    auto aperture = std::make_shared<EMCore::AP_SlotAperture>(
+    auto aperture = std::make_shared<AP_SlotAperture>(
         1, 0, 1, a, b, l, w, t);
 
-    auto cavity1 = std::make_shared<EMCore::TL_EmptyCavity>(
+    auto cavity1 = std::make_shared<TL_EmptyCavity>(
         1, 2, 2, a, b, L1);
 
-    auto cavity2 = std::make_shared<EMCore::TL_EmptyCavity>(
+    auto cavity2 = std::make_shared<TL_EmptyCavity>(
         2, 0, 3, a, b, L2);
 
     // Add branches in MATLAB order
@@ -118,8 +129,8 @@ FrequencySweepResults performFrequencySweep(
         double f = results.frequencies[i];
         auto U = solver.solve(f);
 
-        EMCore::Complex v1 = U(0);
-        EMCore::Complex v2 = U(1);
+        Complex v1 = U(0);
+        Complex v2 = U(1);
 
         results.V1.push_back(v1);
         results.V2.push_back(v2);
@@ -186,19 +197,19 @@ void runValidationTest(double a, double b, double d, double p,
               << std::fixed << std::setprecision(3) << f_test/1e6 << " MHz\n";
     std::cout << "Expected frequency: ~520.74 MHz\n\n";
 
-    EMCore::MNASolver solver;
+    MNASolver solver;
 
     // Create test circuit (same as MATLAB)
-    auto test_src = std::make_shared<EMCore::SRC_VoltageSource>(
-        0, 1, 0, EMCore::Complex(1.0, 0.0), Z_source);
+    auto test_src = std::make_shared<SRC_VoltageSource>(
+        0, 1, 0, Complex(1.0, 0.0), Z_source);
 
-    auto test_aperture = std::make_shared<EMCore::AP_SlotAperture>(
+    auto test_aperture = std::make_shared<AP_SlotAperture>(
         1, 0, 1, a, b, l, w, t);
 
-    auto test_cavity1 = std::make_shared<EMCore::TL_EmptyCavity>(
+    auto test_cavity1 = std::make_shared<TL_EmptyCavity>(
         1, 2, 2, a, b, p);
 
-    auto test_cavity2 = std::make_shared<EMCore::TL_EmptyCavity>(
+    auto test_cavity2 = std::make_shared<TL_EmptyCavity>(
         2, 0, 3, a, b, d - p);
 
     // Add branches in MATLAB order
@@ -211,8 +222,8 @@ void runValidationTest(double a, double b, double d, double p,
     auto U_test = solver.solve(f_test);
 
     // Extract results
-    EMCore::Complex V1 = U_test(0);
-    EMCore::Complex V2 = U_test(1);
+    Complex V1 = U_test(0);
+    Complex V2 = U_test(1);
     double SE_test = -20.0 * std::log10(std::abs(2.0 * V2));
 
     // Display results
@@ -259,6 +270,225 @@ void calculateExactPoint53(double a, double b, double d, double p,
     std::cout << "Ratio f/fc = " << f_53/fc << "\n\n";
 }
 
+// ========================================================================
+// TEST 1: Dielectric-Filled Cavity Validation
+// ========================================================================
+void testDielectricCavity() {
+    std::cout << "\nDielectric Cavity Validation\n";
+    std::cout << "============================\n";
+
+    double aa = 0.300;
+    double b = 0.120;
+    double L = 0.150;
+    double h = 0.060;      // Half-filled (h/b = 0.5)
+    double epsilon_r = 4.4; // FR-4 material
+    double f_test = 1e9;    // 1 GHz
+
+    // Empty cavity (reference)
+    auto empty = std::make_shared<TL_EmptyCavity>(1, 2, 1, aa, b, L);
+    auto Y_empty = empty->computeYParameters(f_test);
+
+    // Dielectric-filled cavity (Lichtenecker - more accurate)
+    auto dielectric_lich = std::make_shared<TL_DielectricCavity>(
+        1, 2, 2, aa, b, L, h, epsilon_r,
+        TL_DielectricCavity::EffPermMethod::LICHTENECKER
+        );
+    auto Y_diel_lich = dielectric_lich->computeYParameters(f_test);
+
+    // Dielectric-filled cavity (Maxwell-Garnett)
+    auto dielectric_mg = std::make_shared<TL_DielectricCavity>(
+        1, 2, 3, aa, b, L, h, epsilon_r,
+        TL_DielectricCavity::EffPermMethod::MAXWELL_GARNETT
+        );
+    auto Y_diel_mg = dielectric_mg->computeYParameters(f_test);
+
+    // Display results
+    std::cout << "Cavity: a=" << std::fixed << std::setprecision(3) << aa
+              << "m, b=" << b << "m, L=" << L << "m\n";
+    std::cout << "Dielectric: h=" << h << "m, εᵣ=" << epsilon_r
+              << ", h/b=" << std::setprecision(3) << (h/b) << "\n";
+    std::cout << "Effective permittivity: εₑff = " << std::setprecision(6)
+              << dielectric_lich->getEffectivePermittivity() << "\n\n";
+
+    std::cout << "Cutoff frequencies:\n";
+    std::cout << "  Empty cavity:      fc = " << std::setprecision(3)
+              << empty->getCutoffFrequency()/1e6 << " MHz\n";
+    std::cout << "  Dielectric cavity: fc = " << dielectric_lich->getCutoffFrequency()/1e6
+              << " MHz\n";
+    std::cout << "  Ratio: fc_diel / fc_empty = "
+              << std::setprecision(3)
+              << dielectric_lich->getCutoffFrequency() / empty->getCutoffFrequency()
+              << "\n\n";
+
+    // Check mode type
+    if (f_test >= dielectric_lich->getCutoffFrequency()) {
+        std::cout << "Mode: Propagating (f > fc)\n";
+    } else {
+        std::cout << "Mode: Evanescent (f < fc)\n";
+    }
+
+    std::cout << "Y-Parameters @ " << std::setprecision(3) << f_test/1e9 << " GHz:\n";
+    std::cout << "  Y11_empty = " << std::scientific << std::setprecision(6)
+              << Y_empty[0][0] << " S\n";
+    std::cout << "  Y12_empty = " << Y_empty[0][1] << " S\n";
+    std::cout << "  Y11_diel (Lichtenecker) = " << Y_diel_lich[0][0] << " S\n";
+    std::cout << "  Y12_diel (Lichtenecker) = " << Y_diel_lich[0][1] << " S\n";
+    std::cout << "  Y11_diel (Maxwell-Garnett) = " << Y_diel_mg[0][0] << " S\n";
+    std::cout << "  Y12_diel (Maxwell-Garnett) = " << Y_diel_mg[0][1] << " S\n\n";
+
+    // Calculate differences
+    Complex Y11_empty = Y_empty[0][0];
+    Complex Y11_diel_lich = Y_diel_lich[0][0];
+    Complex Y12_empty = Y_empty[0][1];
+    Complex Y12_diel_lich = Y_diel_lich[0][1];
+
+    double diff_Y11 = std::abs(Y11_diel_lich - Y11_empty) / std::abs(Y11_empty);
+    double diff_Y12 = std::abs(Y12_diel_lich - Y12_empty) / std::abs(Y12_empty);
+
+    std::cout << "Relative Differences:\n";
+    std::cout << "  ΔY11/Y11 = " << std::fixed << std::setprecision(2)
+              << diff_Y11*100 << "%\n";
+    std::cout << "  ΔY12/Y12 = " << diff_Y12*100 << "%\n";
+
+    std::cout << "\n" << std::string(70, '=') << "\n";
+}
+
+// ========================================================================
+// TEST 2: Aperture with Cover Validation
+// ========================================================================
+void testApertureWithCover() {
+    std::cout << "\nAperture with Cover Validation\n";
+    std::cout << "==============================\n";
+
+    double aa = 0.300;
+    double b = 0.120;
+    double l = 0.08;
+    double w = 0.08;
+    double t = 0.0015;
+    double tau = 0.001;  // 1 mm cover gap
+    double f_test = 1e9;
+
+    // Regular aperture (reference)
+    auto regular = std::make_shared<AP_SlotAperture>(
+        1, 0, 1, aa, b, l, w, t
+        );
+    auto Y_regular = regular->computeYParameters(f_test);
+    double Z0s_regular = regular->getSlotLineImpedance();
+
+    // Aperture with cover
+    auto with_cover = std::make_shared<AP_SlotWithCover>(
+        1, 0, 2, aa, b, l, w, t, tau
+        );
+    auto Y_cover = with_cover->computeYParameters(f_test);
+    double Z0s_cover = with_cover->getSlotLineImpedance();
+
+    // Display results
+    std::cout << "Aperture: l=" << std::fixed << std::setprecision(3) << l
+              << "m, w=" << w << "m\n";
+    std::cout << "Cover gap: τ=" << std::setprecision(4) << tau << "m ("
+              << tau*1000 << "mm)\n";
+    std::cout << "Slot-line impedance: Z₀ₛ = " << std::setprecision(3)
+              << Z0s_regular << " Ω\n\n";
+
+    std::cout << "Correction coefficient:\n";
+    std::cout << "  Fᵤ = " << std::setprecision(6)
+              << with_cover->getCorrectionCoefficient() << "\n\n";
+
+    std::cout << "Final aperture admittance:\n";
+    std::cout << "  Regular aperture:    Y = " << std::scientific << std::setprecision(6)
+              << Y_regular[0][0] << " S\n";
+    std::cout << "  Aperture with cover: Y = " << Y_cover[0][0] << " S\n\n";
+
+    // Calculate difference
+    Complex Y11_reg = Y_regular[0][0];
+    Complex Y11_cov = Y_cover[0][0];
+    double diff = std::abs(Y11_cov - Y11_reg) / std::abs(Y11_reg);
+
+    std::cout << "Comparison with regular aperture:\n";
+    std::cout << "  Relative difference: " << std::fixed << std::setprecision(2)
+              << diff*100 << "%\n";
+
+    std::cout << "\n" << std::string(70, '=') << "\n";
+}
+
+// ========================================================================
+// TEST 3: Complete System with Dielectric and Cover (UPDATED - no resonance check)
+// ========================================================================
+void testCompleteSystem() {
+    std::cout << "\nComplete System (Dielectric + Cover)\n";
+    std::cout << "=====================================\n";
+
+    double a = 0.300;
+    double b = 0.120;
+    double d = 0.300;
+    double p = 0.150;
+    double l_aperture = 0.08;
+    double w_aperture = 0.08;
+    double t_wall = 0.0015;
+    double tau = 0.001;
+    double h_dielectric = 0.060;
+    double epsilon_r = 4.4;
+    double Z_source = 120.0 * M_PI;
+
+    // Create MNA solver
+    MNASolver solver;
+
+    // Create branches
+    auto src = std::make_shared<SRC_VoltageSource>(
+        0, 1, 0, Complex(1.0, 0.0), Z_source);
+
+    // Aperture with cover
+    auto aperture = std::make_shared<AP_SlotWithCover>(
+        1, 0, 1, a, b, l_aperture, w_aperture, t_wall, tau);
+
+    // First cavity: dielectric-filled
+    auto cavity1 = std::make_shared<TL_DielectricCavity>(
+        1, 2, 2, a, b, p, h_dielectric, epsilon_r,
+        TL_DielectricCavity::EffPermMethod::LICHTENECKER);
+
+    // Second cavity: empty
+    auto cavity2 = std::make_shared<TL_EmptyCavity>(
+        2, 0, 3, a, b, d - p);
+
+    // Add branches
+    solver.addBranch(src);
+    solver.addBranch(aperture);
+    solver.addBranch(cavity1);
+    solver.addBranch(cavity2);
+
+    // Test at multiple frequencies
+    std::vector<double> test_freqs = {100e6, 500e6, 1e9, 1.5e9, 2e9};
+
+    std::cout << "Testing complete system with:\n";
+    std::cout << "  - Aperture with cover (τ=" << tau*1000 << "mm)\n";
+    std::cout << "  - Dielectric cavity (h=" << h_dielectric*1000 << "mm, εᵣ=" << epsilon_r << ")\n";
+    std::cout << "  - Empty cavity\n\n";
+
+    std::cout << "Results:\n";
+    std::cout << std::setw(12) << "f [GHz]"
+              << std::setw(15) << "V1 [V]"
+              << std::setw(15) << "V2 [V]"
+              << std::setw(12) << "SE [dB]" << "\n";
+    std::cout << std::string(58, '-') << "\n";
+
+    for (double f : test_freqs) {
+        auto U = solver.solve(f);
+        Complex V1 = U(0);
+        Complex V2 = U(1);
+        double SE = -20.0 * std::log10(std::abs(2.0 * V2));
+
+        std::cout << std::fixed << std::setprecision(3);
+        std::cout << std::setw(12) << f/1e9
+                  << std::setw(15) << "(" << std::setprecision(4)
+                  << V1.real() << "," << V1.imag() << ")"
+                  << std::setw(15) << "("
+                  << V2.real() << "," << V2.imag() << ")"
+                  << std::setw(12) << std::setprecision(1) << SE << "\n";
+    }
+
+    std::cout << "\n" << std::string(70, '=') << "\n";
+}
+
 // ============================================================================
 // MAIN FUNCTION
 // ============================================================================
@@ -275,10 +505,6 @@ int main(int argc, char *argv[])
     // ========================================================================
     // PHYSICAL PARAMETERS (MATLAB-COMPATIBLE)
     // ========================================================================
-    // Using the active values from MATLAB code:
-    // p=0.150; d=0.300; b=0.120; a=0.300; t=0.0015;
-    // w=0.08; l=0.08;
-
     double a_param = 0.300;      // Enclosure width [m]
     double b_param = 0.120;      // Enclosure height [m]
     double d_param = 0.300;      // Enclosure depth [m]
@@ -304,6 +530,22 @@ int main(int argc, char *argv[])
     // Calculate cutoff frequency
     double fc = 3e8 / (2.0 * a_param);
     std::cout << "  Cutoff:    fc = " << std::setprecision(1) << fc/1e6 << " MHz\n\n";
+
+    // ========================================================================
+    // NEW TESTS: DIELECTRIC AND COVER VALIDATION
+    // ========================================================================
+    if (ENABLE_NEW_TESTS) {
+        std::cout << "\n" << std::string(70, '=') << "\n";
+        std::cout << "RUNNING NEW PHYSICS MODEL VALIDATION TESTS\n";
+        std::cout << std::string(70, '=') << "\n";
+
+        testDielectricCavity();
+        testApertureWithCover();
+
+        std::cout << "\n" << std::string(70, '=') << "\n";
+        std::cout << "NEW TESTS COMPLETE\n";
+        std::cout << std::string(70, '=') << "\n\n";
+    }
 
     // ========================================================================
     // CALCULATE EXACT POINT 53 DETAILS
@@ -374,6 +616,9 @@ int main(int argc, char *argv[])
         std::cout << "2. Compare MATLAB output with C++ results\n";
         std::cout << "3. Look at point 53 for validation (~520 MHz)\n";
     }
+
+    // Test Complete System (optional - can be run separately)
+    // testCompleteSystem();
 
     return a.exec();
 }

@@ -22,6 +22,8 @@ qt_add_executable(em-shield-designer
     include/core/MNASolver.h
     src/core/MNASolver.cpp
     include/core/AP_SlotAperture.h
+    include/core/TL_DielectricCavity.h
+    include/core/AP_SlotWithCover.h
 )
 
 target_link_libraries(em-shield-designer
