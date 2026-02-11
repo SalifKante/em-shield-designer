@@ -5,8 +5,13 @@
 #include "PhysicsConstants.h"
 #include <cmath>
 #include <complex>
+
+// Uncomment to enable detailed debug output:
+// #define DEBUG_AP_SLOT
+#ifdef DEBUG_AP_SLOT
 #include <iostream>
 #include <iomanip>
+#endif
 
 namespace EMCore {
 
@@ -59,9 +64,27 @@ public:
         double lambda = C_LIGHT / f_Hz;  // Wavelength [m]
         Complex jUnit(0.0, 1.0);
 
-        // ====================================================================
-        // DETAILED DEBUG OUTPUT
-        // ====================================================================
+        // Step 1: Geometric factor
+        double geometric_factor = (2.0 * a_) / l_;
+
+        // Step 2: Slot admittance
+        Complex slot_admittance = 1.0 / (jUnit * Z0s_);
+
+        // Step 3: Cotangent term with singularity protection
+        // [FIX #1] Guard against tan→0 at slot resonance (πl/λ = nπ)
+        double arg = M_PI * l_ / lambda;
+        double tan_val = std::tan(arg);
+        const double EPS = 1e-12;
+        if (std::abs(tan_val) < EPS) {
+            tan_val = (tan_val >= 0.0) ? EPS : -EPS;  // Preserve sign
+        }
+        double cot_term = 1.0 / tan_val;
+
+        // Step 4: Final Y_ap
+        Complex Y_ap = geometric_factor * slot_admittance * cot_term;
+
+        // [FIX #2] Debug output only when DEBUG_AP_SLOT is defined
+#ifdef DEBUG_AP_SLOT
         std::cout << "\n╔════════════════════════════════════════════════════════════╗\n";
         std::cout << "║        AP_SlotAperture::computeYParameters DEBUG          ║\n";
         std::cout << "╚════════════════════════════════════════════════════════════╝\n\n";
@@ -69,20 +92,16 @@ public:
         std::cout << std::fixed << std::setprecision(9);
         std::cout << "Input Parameters:\n";
         std::cout << "  Frequency:        f = " << f_Hz << " Hz (" << f_Hz/1e9 << " GHz)\n";
-        std::cout << "  Wavelength:       λ = " << lambda << " m\n";
+        std::cout << "  Wavelength:       lambda = " << lambda << " m\n";
         std::cout << "  Enclosure width:  a = " << a_ << " m (" << a_*1000 << " mm)\n";
         std::cout << "  Aperture width:   l = " << l_ << " m (" << l_*1000 << " mm)\n";
-        std::cout << "  Slot impedance:  Z0s = " << Z0s_ << " Ω\n\n";
+        std::cout << "  Slot impedance:  Z0s = " << Z0s_ << " Ohm\n\n";
 
-        // Step 1: Geometric factor
-        double geometric_factor = (2.0 * a_) / l_;
         std::cout << "Step 1: Geometric Factor\n";
         std::cout << "  geometric_factor = 2*a/l\n";
         std::cout << "                   = 2 * " << a_ << " / " << l_ << "\n";
         std::cout << "                   = " << geometric_factor << "\n\n";
 
-        // Step 2: Slot admittance
-        Complex slot_admittance = 1.0 / (jUnit * Z0s_);
         std::cout << "Step 2: Slot Admittance\n";
         std::cout << "  slot_admittance = 1 / (j * Z0s)\n";
         std::cout << "                  = 1 / (j * " << Z0s_ << ")\n";
@@ -91,21 +110,15 @@ public:
         std::cout << "                  = (" << slot_admittance.real() << ", "
                   << slot_admittance.imag() << ") S\n\n";
 
-        // Step 3: Cotangent term
-        double arg = M_PI * l_ / lambda;
         std::cout << "Step 3: Cotangent Calculation\n";
-        std::cout << "  arg = π * l / λ\n";
-        std::cout << "      = π * " << l_ << " / " << lambda << "\n";
+        std::cout << "  arg = pi * l / lambda\n";
+        std::cout << "      = pi * " << l_ << " / " << lambda << "\n";
         std::cout << "      = " << arg << " rad\n";
         std::cout << "      = " << arg * 180.0 / M_PI << " degrees\n";
-        std::cout << "  tan(arg) = " << std::tan(arg) << "\n";
-
-        double cot_term = 1.0 / std::tan(arg);
+        std::cout << "  tan(arg) = " << tan_val << "\n";
         std::cout << "  cot(arg) = 1 / tan(arg)\n";
         std::cout << "           = " << cot_term << "\n\n";
 
-        // Step 4: Final Y_ap
-        Complex Y_ap = geometric_factor * slot_admittance * cot_term;
         std::cout << "Step 4: Final Aperture Admittance\n";
         std::cout << "  Y_ap = geometric_factor * slot_admittance * cot_term\n";
         std::cout << "       = " << geometric_factor << " * " << slot_admittance << " * " << cot_term << "\n";
@@ -114,11 +127,12 @@ public:
         std::cout << "       = " << std::scientific << std::setprecision(6)
                   << Y_ap.real() << " " << (Y_ap.imag() >= 0 ? "+" : "") << Y_ap.imag() << "j S\n";
 
-        std::cout << "\n2×2 Y-Matrix (shunt form):\n";
+        std::cout << "\n2x2 Y-Matrix (shunt form):\n";
         std::cout << std::fixed << std::setprecision(6);
         std::cout << "  [ " << Y_ap << "   " << -Y_ap << " ]\n";
         std::cout << "  [ " << -Y_ap << "   " << Y_ap << " ]\n";
         std::cout << "════════════════════════════════════════════════════════════\n\n";
+#endif
 
         // For shunt admittance between two nodes:
         return {
@@ -127,18 +141,15 @@ public:
         };
     }
 
-    std::vector<Complex> getVoltageSourceVector(double f_Hz) const override {
-        return {Complex(0.0, 0.0), Complex(0.0, 0.0)};
-    }
+    // [FIX #4] Removed redundant getVoltageSourceVector override.
+    // Base class BranchTemplate already returns {0, 0} for passive elements.
 
     // ========================================================================
     // PUBLIC ACCESSORS (for external use)
     // ========================================================================
 
-    // Getter for slot-line impedance (for external debugging)
     double getSlotLineImpedance() const { return Z0s_; }
 
-    // Public geometry getters
     double getEnclosureWidth() const { return a_; }
     double getEnclosureHeight() const { return b_; }
     double getApertureWidth() const { return l_; }
@@ -147,18 +158,10 @@ public:
 
 protected:
     // ========================================================================
-    // PROTECTED ACCESSORS (for derived classes like AP_SlotWithCover)
+    // [FIX #5] Members moved from private to protected so derived classes
+    // (e.g. AP_SlotWithCover) can access them directly.
+    // Removed redundant protected Impl accessor functions.
     // ========================================================================
-
-    // These allow derived classes to access private members
-    double getEnclosureWidthImpl() const { return a_; }
-    double getEnclosureHeightImpl() const { return b_; }
-    double getApertureWidthImpl() const { return l_; }
-    double getApertureHeightImpl() const { return w_; }
-    double getWallThicknessImpl() const { return t_; }
-    double getSlotLineImpedanceImpl() const { return Z0s_; }
-
-private:
     double a_;   // Enclosure width [m]
     double b_;   // Enclosure height [m]
     double l_;   // Aperture width [m]
@@ -166,6 +169,7 @@ private:
     double t_;   // Wall thickness [m]
     double Z0s_; // Slot-line impedance [Ω]
 
+private:
     void calculateSlotLineImpedance() {
         // Cohn's formula for slot-line impedance
         // Matching MATLAB exactly, including complex arithmetic when ke > 1
@@ -185,7 +189,7 @@ private:
         std::complex<double> one_minus_ke2 = 1.0 - ke_squared;
         std::complex<double> fourth_root = std::pow(one_minus_ke2, 0.25);
 
-        // Calculate K = π / log(2*(1+√(1-ke²)^(1/4)) / (1-√(1-ke²)^(1/4)))
+        // Calculate K = π / log(2*(1+(1-ke²)^(1/4)) / (1-(1-ke²)^(1/4)))
         std::complex<double> numerator = 1.0 + fourth_root;
         std::complex<double> denominator = 1.0 - fourth_root;
 
@@ -197,10 +201,12 @@ private:
         std::complex<double> log_arg = 2.0 * numerator / denominator;
         std::complex<double> K_complex = M_PI / std::log(log_arg);
 
+        // [FIX #3] Use Z_0 from PhysicsConstants.h instead of hardcoded 120.0*M_PI
         // Take real part for Z0s (imaginary part should be small or zero)
-        Z0s_ = 120.0 * M_PI * K_complex.real();
+        Z0s_ = Z_0 * K_complex.real();
 
         // Debug output for slot-line impedance calculation
+#ifdef DEBUG_AP_SLOT
         std::cout << "\n╔════════════════════════════════════════════════════════════╗\n";
         std::cout << "║     Slot-Line Impedance Calculation (Cohn's Formula)      ║\n";
         std::cout << "╚════════════════════════════════════════════════════════════╝\n\n";
@@ -218,23 +224,24 @@ private:
         std::cout << "  Aspect ratio:     ke = we/b = " << ke << "\n";
 
         if (ke > 1.0) {
-            std::cout << "  ⚠️  Note: ke > 1 requires complex arithmetic!\n";
+            std::cout << "  Note: ke > 1 requires complex arithmetic!\n";
         }
 
-        std::cout << "\n  (1 - ke²) = " << one_minus_ke2 << "\n";
-        std::cout << "  (1 - ke²)^(1/4) = " << fourth_root << "\n";
+        std::cout << "\n  (1 - ke^2) = " << one_minus_ke2 << "\n";
+        std::cout << "  (1 - ke^2)^(1/4) = " << fourth_root << "\n";
         std::cout << "  K (complex) = " << K_complex << "\n";
         std::cout << "  K (real part) = " << K_complex.real() << "\n";
 
         if (std::abs(K_complex.imag()) > 1e-6) {
-            std::cout << "  ⚠️  K has significant imaginary part: " << K_complex.imag() << "\n";
+            std::cout << "  Warning: K has significant imaginary part: " << K_complex.imag() << "\n";
         }
 
         std::cout << "\nFinal Result:\n";
-        std::cout << "  Z0s = 120π * K_real\n";
-        std::cout << "      = " << 120.0 * M_PI << " * " << K_complex.real() << "\n";
-        std::cout << "      = " << Z0s_ << " Ω\n";
+        std::cout << "  Z0s = Z_0 * K_real\n";
+        std::cout << "      = " << Z_0 << " * " << K_complex.real() << "\n";
+        std::cout << "      = " << Z0s_ << " Ohm\n";
         std::cout << "════════════════════════════════════════════════════════════\n\n";
+#endif
     }
 };
 

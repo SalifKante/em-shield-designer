@@ -17,7 +17,8 @@ constexpr double C_LIGHT = 3.0e8;              // [m/s] MATLAB-compatible value
 
 constexpr double MU_0 = 4.0 * M_PI * 1e-7;     // [H/m] Permeability of free space
 constexpr double EPS_0 = 1.0 / (MU_0 * C_LIGHT * C_LIGHT); // [F/m] Permittivity
-constexpr double Z_0 = 376.730313668;          // [Ohm] Free-space impedance
+// constexpr double Z_0 = 376.730313668;          // [Ohm] Free-space impedance
+constexpr double Z_0 = MU_0 * C_LIGHT;  // = 120π ≈ 376.991 Ω (MATLAB-compatible)
 
 // ============================================================================
 // Conversion Utilities

@@ -178,10 +178,12 @@ public:
     // VOLTAGE SOURCE VECTOR (PASSIVE ELEMENT)
     // ========================================================================
 
-    std::vector<Complex> getVoltageSourceVector(double f_Hz) const override {
+    /*
+     std::vector<Complex> getVoltageSourceVector(double f_Hz) const override {
         // Transmission line is passive - no voltage source
         return {Complex(0.0, 0.0), Complex(0.0, 0.0)};
-    }
+     }
+    */
 
     // ========================================================================
     // VALIDATION

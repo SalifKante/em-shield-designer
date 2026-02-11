@@ -50,6 +50,8 @@ Eigen::MatrixXd MNASolver::buildIncidenceMatrix() {
         int row_to = 2 * k + 1;
 
         // Voltage at terminal = voltage at node
+        // Sign convention is embedded in the branch Y-parameters (Y21 = -Y12),
+        // so the incidence matrix uses unsigned +1 entries for connectivity.
         if (node_from > 0) {  // Not ground (ground = node 0)
             A(row_from, node_from - 1) = 1.0;
         }
@@ -76,7 +78,7 @@ Eigen::MatrixXcd MNASolver::buildBranchYMatrix(double f_Hz) {
             throw std::runtime_error(
                 "Branch " + std::to_string(branches_[k]->getBranchID()) +
                 " (" + branches_[k]->getDescription() + ")" +
-                " returned invalid Y-matrix dimensions (expected 2×2)"
+                " returned invalid Y-matrix dimensions (expected 2x2)"
                 );
         }
 
@@ -158,24 +160,24 @@ Eigen::VectorXcd MNASolver::solve(double f_Hz) {
         std::cout << "System dimensions:\n";
         std::cout << "  Branches: " << branches_.size() << "\n";
         std::cout << "  Nodes (excl. GND): " << getNumNodes() << "\n";
-        std::cout << "  Y-matrix size: " << Y.rows() << "×" << Y.cols() << "\n";
-        std::cout << "  A-matrix size: " << A.rows() << "×" << A.cols() << "\n\n";
+        std::cout << "  Y-matrix size: " << Y.rows() << "x" << Y.cols() << "\n";
+        std::cout << "  A-matrix size: " << A.rows() << "x" << A.cols() << "\n\n";
 
         std::cout << "Branch descriptions:\n";
         for (size_t k = 0; k < branches_.size(); ++k) {
             std::cout << "  Branch " << k << ": " << branches_[k]->getDescription() << "\n";
             std::cout << "    Nodes: " << branches_[k]->getNodeFrom()
-                      << " → " << branches_[k]->getNodeTo() << "\n";
+                      << " -> " << branches_[k]->getNodeTo() << "\n";
         }
         std::cout << "\n";
 
-        std::cout << "Incidence matrix A [" << A.rows() << "×" << A.cols() << "]:\n";
+        std::cout << "Incidence matrix A [" << A.rows() << "x" << A.cols() << "]:\n";
         std::cout << A << "\n\n";
 
-        std::cout << "Branch Y-matrix (block diagonal) [" << Y.rows() << "×" << Y.cols() << "]:\n";
+        std::cout << "Branch Y-matrix (block diagonal) [" << Y.rows() << "x" << Y.cols() << "]:\n";
         std::cout << Y << "\n\n";
 
-        std::cout << "Source vector V_vec [" << V_vec.size() << "×1]:\n";
+        std::cout << "Source vector V_vec [" << V_vec.size() << "x1]:\n";
         std::cout << V_vec << "\n\n";
     }
 
@@ -186,7 +188,7 @@ Eigen::VectorXcd MNASolver::solve(double f_Hz) {
     // Convert A to complex for matrix operations
     Eigen::MatrixXcd A_complex = A.cast<Complex>();
 
-    // MNA equation (standard formulation):
+    // MNA equation (Equation 3.9):
     // A * Y * A^T * U = -A * Y * V_vec
     //                    ↑ NEGATIVE SIGN (standard MNA convention)
 
@@ -194,10 +196,10 @@ Eigen::VectorXcd MNASolver::solve(double f_Hz) {
     Eigen::VectorXcd RHS = -A_complex * Y * V_vec;                 // -[M×2N]*[2N×2N]*[2N×1] = [M×1]
 
     if (debug_mode_) {
-        std::cout << "Reduced system LHS (A·Y·A^T) [" << LHS.rows() << "×" << LHS.cols() << "]:\n";
+        std::cout << "Reduced system LHS (A*Y*A^T) [" << LHS.rows() << "x" << LHS.cols() << "]:\n";
         std::cout << LHS << "\n\n";
 
-        std::cout << "Reduced system RHS (-A·Y·V_vec) [" << RHS.size() << "×1]:\n";
+        std::cout << "Reduced system RHS (-A*Y*V_vec) [" << RHS.size() << "x1]:\n";
         std::cout << RHS << "\n\n";
     }
 
@@ -207,15 +209,20 @@ Eigen::VectorXcd MNASolver::solve(double f_Hz) {
     // ========================================================================
     // VERIFY SOLUTION QUALITY
     // ========================================================================
-    double relative_error = (LHS * U - RHS).norm() / RHS.norm();
+    // [FIX] Guard against division by zero when RHS is zero
+    // (occurs if no sources are present or V_vec = 0)
+    double rhs_norm = RHS.norm();
+    double relative_error = (rhs_norm > 1e-15)
+                                ? (LHS * U - RHS).norm() / rhs_norm
+                                : 0.0;
 
     if (debug_mode_) {
-        std::cout << "Solution node voltages U [" << U.size() << "×1]:\n";
+        std::cout << "Solution node voltages U [" << U.size() << "x1]:\n";
         std::cout << U << "\n\n";
         std::cout << "Relative error: " << std::scientific << relative_error << "\n";
 
         if (relative_error > 1e-6) {
-            std::cout << "⚠ WARNING: High relative error in solution!\n";
+            std::cout << "WARNING: High relative error in solution!\n";
         }
 
         std::cout << "════════════════════════════════════════════════════════════\n\n";

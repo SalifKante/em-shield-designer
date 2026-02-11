@@ -24,6 +24,7 @@ qt_add_executable(em-shield-designer
     include/core/AP_SlotAperture.h
     include/core/TL_DielectricCavity.h
     include/core/AP_SlotWithCover.h
+    include/core/CircuitGenerator.h
 )
 
 target_link_libraries(em-shield-designer

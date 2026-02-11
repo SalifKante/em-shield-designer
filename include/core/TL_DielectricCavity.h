@@ -1,10 +1,9 @@
 #ifndef TL_DIELECTRICCAVITY_H
 #define TL_DIELECTRICCAVITY_H
 
-#include "TL_EmptyCavity.h"  // ← MUST INHERIT FROM THIS
+#include "TL_EmptyCavity.h"  // Inherits from TL_EmptyCavity
 #include <cmath>
 #include <stdexcept>
-#include <iostream>
 
 namespace EMCore {
 
@@ -75,7 +74,7 @@ public:
         }
         if (m_epsilon_r < 1.0) {
             throw std::invalid_argument(
-                "Relative permittivity must be ≥ 1.0"
+                "Relative permittivity must be >= 1.0"
                 );
         }
 
@@ -94,54 +93,65 @@ public:
         using namespace std::complex_literals;
 
         // --------------------------------------------------------------------
-        // STEP 1: Use parent's evanescent mode handling (complex arithmetic)
+        // STEP 1: Free-space parameters
         // --------------------------------------------------------------------
-        // We'll handle everything with complex arithmetic for consistency
         double lambda = C_LIGHT / f_Hz;
         double k0 = (2.0 * M_PI) / lambda;
 
         double sqrt_eff = std::sqrt(m_epsilon_eff);
         double lambda_c_eff = 2.0 * getWidth() * sqrt_eff;  // Modified cutoff wavelength
 
-        // Calculate ratio (λ / λc_eff)
+        // --------------------------------------------------------------------
+        // STEP 2: Modified propagation constant (Equation 3.19)
+        // --------------------------------------------------------------------
+        // kₐ = (2π√εₑff/λ) · √[1 - (λ/(2a√εₑff))²]
+        //    = k₀ · √εₑff · √[1 - (λ/λc_eff)²]
+        //
+        // where λc_eff = 2a√εₑff
+
         double ratio = lambda / lambda_c_eff;
 
-        // Use complex sqrt for both above and below cutoff
         std::complex<double> sqrt_term;
         if (ratio < 1.0) {
-            // Above cutoff: sqrt(1 - ratio²) is real
+            // Above cutoff: propagating mode (real)
             sqrt_term = std::sqrt(1.0 - ratio * ratio);
         } else {
-            // Below cutoff: sqrt(1 - ratio²) is imaginary (evanescent)
+            // Below cutoff: evanescent mode (imaginary)
             sqrt_term = 1.0i * std::sqrt(ratio * ratio - 1.0);
         }
 
-        // Modified propagation constant (Equation 3.19)
         std::complex<double> ka = k0 * sqrt_eff * sqrt_term;
         std::complex<double> beta = ka * getLength();
 
-        // Waveguide impedance (complex for evanescent mode)
+        // --------------------------------------------------------------------
+        // STEP 3: Waveguide impedance (Equation 3.17, with modified kₐ)
+        // --------------------------------------------------------------------
+        // Zg = ωμ₀/kₐ  (same form, but kₐ replaces kg)
         double omega = 2.0 * M_PI * f_Hz;
         std::complex<double> Zg = (omega * MU_0) / ka;
 
         // --------------------------------------------------------------------
-        // STEP 2: Compute Y-parameters with complex arithmetic
+        // STEP 4: Y-parameters (Equations 3.14, 3.15 with modified parameters)
         // --------------------------------------------------------------------
+        // Y11 = Y22 = 1/(j·Zg·tan(kₐ·L))     [Eq 3.14]
+        // Y12 = 1/(Zg·sin(kₐ·L))             [Eq 3.15]
+        // Y21 = -Y12                          [Russian convention]
+
         std::complex<double> tan_beta = std::tan(beta);
         std::complex<double> sin_beta = std::sin(beta);
 
         // Handle numerical singularities
         const double EPS = 1e-12;
         if (std::abs(tan_beta) < EPS) {
-            tan_beta = std::complex<double>(tan_beta.real() + EPS, tan_beta.imag());
+            tan_beta = std::complex<double>(EPS, 0.0);
         }
         if (std::abs(sin_beta) < EPS) {
-            sin_beta = std::complex<double>(sin_beta.real() + EPS, sin_beta.imag());
+            sin_beta = std::complex<double>(EPS, 0.0);
         }
 
         std::complex<double> Y11 = 1.0 / (1.0i * Zg * tan_beta);
         std::complex<double> Y12 = 1.0 / (Zg * sin_beta);
-        std::complex<double> Y21 = -Y12;
+        std::complex<double> Y21 = -Y12;  // Russian convention: Y21 = -Y12
         std::complex<double> Y22 = Y11;
 
         return {
@@ -150,13 +160,7 @@ public:
         };
     }
 
-    // ========================================================================
-    // VOLTAGE SOURCE VECTOR (PASSIVE ELEMENT)
-    // ========================================================================
-
-    std::vector<Complex> getVoltageSourceVector(double f_Hz) const override {
-        return {Complex(0.0, 0.0), Complex(0.0, 0.0)};
-    }
+    // Base class getVoltageSourceVector() returns {0, 0} — correct for passive element.
 
     // ========================================================================
     // VALIDATION
@@ -180,7 +184,7 @@ public:
         }
 
         if (m_epsilon_r < 1.0) {
-            error_msg = "Relative permittivity must be ≥ 1.0";
+            error_msg = "Relative permittivity must be >= 1.0";
             return false;
         }
 
@@ -203,7 +207,7 @@ public:
 
         std::snprintf(buf, sizeof(buf),
                       "Dielectric Cavity: a=%.1fmm, b=%.1fmm, L=%.1fmm, "
-                      "h=%.1fmm (h/b=%.2f), εᵣ=%.2f, εₑff=%.3f (%s)",
+                      "h=%.1fmm (h/b=%.2f), er=%.2f, e_eff=%.3f (%s)",
                       getWidth() * 1000.0,
                       getHeight() * 1000.0,
                       getLength() * 1000.0,
@@ -225,8 +229,8 @@ public:
     double getEffectivePermittivity() const { return m_epsilon_eff; }
     EffPermMethod getMethod() const { return m_method; }
 
-    // Override cutoff frequency for dielectric
-    // double getCutoffFrequency() const override { return m_fc10_dielectric; }
+    // Modified cutoff frequency with dielectric
+    double getDielectricCutoffFrequency() const { return m_fc10_dielectric; }
 
     // Fill factor (h/b)
     double getFillFactor() const { return m_h / getHeight(); }
@@ -259,32 +263,43 @@ private:
             return calculateLichtenecker(h_b);
 
         default:
-            return calculateLichtenecker(h_b);  // Default
+            return calculateLichtenecker(h_b);  // Default fallback
         }
     }
 
     /**
-     * @brief Maxwell-Garnett formula (Equation 3.20 - CORRECTED)
+     * @brief Maxwell-Garnett formula (Equation 3.20)
      *
-     * Equation 3.20: εₑff = [ (εᵣ + 2) + 2ha(εᵣ - 1) ] / [ (εᵣ - 2) - ha(εᵣ - 1) ]
+     * From Russian theory (Image 5, p.102):
      *
-     * where: filling factor ha = h/b
+     *   εₑff = [ 2·ha·(εᵣ - 1) + (εᵣ + 2) ] / [ (εᵣ + 2) - ha·(εᵣ - 1) ]
+     *
+     * where ha = h/b is the filling factor.
+     *
+     * Boundary cases:
+     *   ha = 0 (no dielectric):  εₑff = (εᵣ+2)/(εᵣ+2) = 1.0      ✓
+     *   ha = 1 (full dielectric): εₑff = (2εᵣ-2+εᵣ+2)/(εᵣ+2-εᵣ+1)
+     *                                   = 3εᵣ/3 = εᵣ               ✓
      */
     double calculateMaxwellGarnett(double h_b) const {
-        // Equation 3.20 from Russian theory
-        double numerator = (m_epsilon_r + 2.0) + 2.0 * h_b * (m_epsilon_r - 1.0);
-        double denominator = (m_epsilon_r - 2.0) - h_b * (m_epsilon_r - 1.0);
+        // [FIX #1 - CRITICAL] Equation 3.20 from Russian theory
+        // Denominator: (εᵣ + 2) - ha·(εᵣ - 1)
+        //              ^^^^^^^^
+        //              Was incorrectly coded as (εᵣ - 2)
+        double numerator   = 2.0 * h_b * (m_epsilon_r - 1.0) + (m_epsilon_r + 2.0);
+        double denominator = (m_epsilon_r + 2.0) - h_b * (m_epsilon_r - 1.0);
 
         // Guard against division by zero
+        // (occurs when h/b = (εᵣ+2)/(εᵣ-1), which is > 1 for εᵣ > 1, so
+        //  should never happen with valid h ≤ b and εᵣ ≥ 1)
         if (std::abs(denominator) < 1e-10) {
-            std::cerr << "WARNING: Maxwell-Garnett denominator near zero, using Lichtenecker instead\n";
+            // Fallback to Lichtenecker if Maxwell-Garnett is singular
             return calculateLichtenecker(h_b);
         }
 
         double eps_eff = numerator / denominator;
 
         // Sanity check: εₑff should be between 1 and εᵣ
-        // But Maxwell-Garnett can give values slightly outside for extreme h/b
         eps_eff = std::max(1.0, std::min(m_epsilon_r, eps_eff));
 
         return eps_eff;
@@ -293,10 +308,19 @@ private:
     /**
      * @brief Lichtenecker formula (Equation 3.21)
      *
-     * εₑff = εᵣ^(h/b)
+     * From Russian theory (Image 5, p.102):
+     *
+     *   lg(εₑff) = (h/b)·lg(εᵣ) + ((b-h)/b)·lg(1)
+     *
+     * Since lg(1) = 0, this simplifies to:
+     *
+     *   εₑff = εᵣ^(h/b)
+     *
+     * Boundary cases:
+     *   h/b = 0: εₑff = εᵣ^0 = 1.0    ✓
+     *   h/b = 1: εₑff = εᵣ^1 = εᵣ     ✓
      */
     double calculateLichtenecker(double h_b) const {
-        // εₑff = εᵟ^(h/b)
         return std::pow(m_epsilon_r, h_b);
     }
 };
