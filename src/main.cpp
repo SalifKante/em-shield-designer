@@ -1075,14 +1075,15 @@ void testCircuitGenerator() {
 // ============================================================================
 int main(int argc, char *argv[])
 {
+/*
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
 #endif
-
+*/
     QApplication app(argc, argv);
     MainWindow mw;
     mw.show();
-
+    /*
     // ========================================================================
     // PHYSICAL PARAMETERS (MATLAB-COMPATIBLE)
     // ========================================================================
@@ -1182,6 +1183,7 @@ int main(int argc, char *argv[])
             std::cerr << "Failed to save results.\n";
         }
     }
+   */
 
     // ========================================================================
     // FULL FREQUENCY SWEEP — DIELECTRIC CAVITY + SLOT WITH COVER
@@ -1193,14 +1195,17 @@ int main(int argc, char *argv[])
     }
     */
 
+
     // ========================================================================
     // 2-SECTION CASCADE TEST
     // ========================================================================
+    /*
     if (ENABLE_2SECTION_CASCADE) {
         // testCompleteSystem();
         // test2SectionCascade();
         testCircuitGenerator();
     }
+    */
 
     /*
     std::cout << "\n========================================\n";
@@ -1217,7 +1222,7 @@ int main(int argc, char *argv[])
     std::cout << "  2. Compare CSV outputs\n";
     std::cout << "  3. Validate point 53 values match exactly\n";
     */
-
+    /*
     std::cout << "\n========================================\n";
     std::cout << "All analyses complete.\n";
     std::cout << "========================================\n\n";
@@ -1230,6 +1235,6 @@ int main(int argc, char *argv[])
     std::cout << "  3. 2-section identical cascade     (EXACT match with MATLAB)\n";
     std::cout << "  4. 3-section identical cascade     (validated via CircuitGenerator)\n";
     std::cout << "  5. 2-section different parameters  (validated via CircuitGenerator)\n";
-
+    */
     return app.exec();
 }

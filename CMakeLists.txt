@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.19)
 project(em-shield-designer LANGUAGES CXX)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets PrintSupport)
 # Add Eigen include path (header-only library, no compilation needed)
 include_directories(${CMAKE_SOURCE_DIR}/external/eigen/eigen-5.0.0)
 add_definitions(-DDEBUG_APERTURE)
@@ -14,6 +14,8 @@ qt_add_executable(em-shield-designer
     mainwindow.cpp
     mainwindow.h
     mainwindow.ui
+    qcustomplot.h
+    qcustomplot.cpp
     include/core/PhysicsConstants.h
     include/core/BranchTemplate.h
     include/core/TL_EmptyCavity.h
@@ -25,12 +27,16 @@ qt_add_executable(em-shield-designer
     include/core/TL_DielectricCavity.h
     include/core/AP_SlotWithCover.h
     include/core/CircuitGenerator.h
+    SectionItem.h
+    CircuitCanvas.h
+    PropertyPanel.h
 )
 
 target_link_libraries(em-shield-designer
     PRIVATE
         Qt::Core
         Qt::Widgets
+        Qt6::PrintSupport
 )
 
 include(GNUInstallDirs)
