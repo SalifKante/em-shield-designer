@@ -13,6 +13,8 @@
 #include "../include/core/AP_SlotWithCover.h"
 #include "../include/core/MNASolver.h"
 #include "../include/core/CircuitGenerator.h"
+#include "../StartupWindow.h"
+
 
 #include <iostream>
 #include <iomanip>
@@ -21,6 +23,7 @@
 #include <filesystem>
 #include <numeric>
 #include <memory>
+#include <QMessageBox>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -1080,9 +1083,13 @@ int main(int argc, char *argv[])
     SetConsoleOutputCP(CP_UTF8);
 #endif
 */
-    QApplication app(argc, argv);
-    MainWindow mw;
-    mw.show();
+    /*
+     QApplication app(argc, argv);
+     MainWindow mw;
+     mw.show();
+    */
+
+
     /*
     // ========================================================================
     // PHYSICAL PARAMETERS (MATLAB-COMPATIBLE)
@@ -1236,5 +1243,36 @@ int main(int argc, char *argv[])
     std::cout << "  4. 3-section identical cascade     (validated via CircuitGenerator)\n";
     std::cout << "  5. 2-section different parameters  (validated via CircuitGenerator)\n";
     */
+    #ifdef _WIN32
+    SetConsoleOutputCP(CP_UTF8);
+    #endif
+
+    QApplication app(argc, argv);
+    app.setApplicationName("EMShieldDesigner");
+    app.setApplicationVersion("1.0");
+
+    // --- Startup Window ---
+    StartupWindow* startup = new StartupWindow;
+
+    // Quick Simulation → open MainWindow
+    QObject::connect(startup, &StartupWindow::quickSimulationClicked, [startup]() {
+        startup->hide();
+        MainWindow* mw = new MainWindow;
+        mw->setAttribute(Qt::WA_DeleteOnClose);
+        mw->show();
+        startup->deleteLater();
+    });
+
+    // Circuit Builder → placeholder for Phase B
+    /*
+     * QObject::connect(startup, &StartupWindow::circuitBuilderClicked, [startup]() {
+        QMessageBox::information(startup, "Circuit Builder",
+                                 "The Circuit Builder mode is under development.\n\n"
+                                 "This will allow you to drag & drop electromagnetic\n"
+                                 "elements to build custom equivalent circuits.");
+    });
+    */
+    startup->show();
+
     return app.exec();
 }

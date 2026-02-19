@@ -30,6 +30,8 @@ qt_add_executable(em-shield-designer
     SectionItem.h
     CircuitCanvas.h
     PropertyPanel.h
+    StartupWindow.h
+    CircuitBuilderWindow.h
 )
 
 target_link_libraries(em-shield-designer
