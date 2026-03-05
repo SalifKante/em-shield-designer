@@ -4,23 +4,34 @@
 #include <stdexcept>
 #include <iostream>
 #include <iomanip>
+#include <set>
+#include <cmath>
 
 namespace EMCore {
 
 using Complex = std::complex<double>;
+
+// ============================================================================
+// CONSTRUCTOR
+// ============================================================================
 
 MNASolver::MNASolver()
     : max_node_index_(0)
     , debug_mode_(false)
 {}
 
-void MNASolver::addBranch(std::shared_ptr<BranchTemplate> branch) {
-    branches_.push_back(branch);
+// ============================================================================
+// CIRCUIT ASSEMBLY
+// ============================================================================
 
-    // Update maximum node index
-    max_node_index_ = std::max({max_node_index_,
+void MNASolver::addBranch(std::shared_ptr<BranchTemplate> branch) {
+    if (!branch) {
+        throw std::invalid_argument("MNASolver::addBranch: null branch pointer");
+    }
+    branches_.push_back(branch);
+    max_node_index_ = std::max({ max_node_index_,
                                 branch->getNodeFrom(),
-                                branch->getNodeTo()});
+                                branch->getNodeTo() });
 }
 
 void MNASolver::clearBranches() {
@@ -29,216 +40,333 @@ void MNASolver::clearBranches() {
 }
 
 int MNASolver::getNumNodes() const {
-    return max_node_index_;
+    return max_node_index_;   // Count of non-ground nodes (ground = node 0)
 }
 
-Eigen::MatrixXd MNASolver::buildIncidenceMatrix() {
-    int N_branches = branches_.size();
-    int M_nodes = getNumNodes();
+// ============================================================================
+// NODE CONTIGUITY VALIDATION
+// ============================================================================
+// Detects gaps in node numbering (e.g. nodes {1, 3} without node 2).
+// A gap produces an all-zero column in A, making A·Y·Aᵀ singular.
+//
+// Algorithm: collect all non-ground node indices referenced by the branch
+// list and verify they form the set {1, 2, …, max_node_index_}.
 
-    // A_temp is [2*N_branches × M_nodes] - TWO ROWS PER BRANCH (one per terminal)
-    // This follows MATLAB convention: A_temp = zeros(8, 2) before transpose
-    Eigen::MatrixXd A = Eigen::MatrixXd::Zero(2 * N_branches, M_nodes);
+void MNASolver::validateNodeContiguity() const {
+    std::set<int> nodes_used;
+    for (const auto& b : branches_) {
+        if (b->getNodeFrom() > 0) nodes_used.insert(b->getNodeFrom());
+        if (b->getNodeTo()   > 0) nodes_used.insert(b->getNodeTo());
+    }
 
-    for (int k = 0; k < N_branches; ++k) {
-        int node_from = branches_[k]->getNodeFrom();
-        int node_to = branches_[k]->getNodeTo();
-
-        // Row for terminal "from" (terminal A)
-        int row_from = 2 * k;
-        // Row for terminal "to" (terminal B)
-        int row_to = 2 * k + 1;
-
-        // Voltage at terminal = voltage at node
-        // Sign convention is embedded in the branch Y-parameters (Y21 = -Y12),
-        // so the incidence matrix uses unsigned +1 entries for connectivity.
-        if (node_from > 0) {  // Not ground (ground = node 0)
-            A(row_from, node_from - 1) = 1.0;
+    for (int n = 1; n <= max_node_index_; ++n) {
+        if (nodes_used.find(n) == nodes_used.end()) {
+            throw std::runtime_error(
+                "MNASolver: node index " + std::to_string(n) +
+                " is not referenced by any branch, but max node index is " +
+                std::to_string(max_node_index_) +
+                ". Node indices must be contiguous (1 … " +
+                std::to_string(max_node_index_) +
+                "). Check CircuitGenerator node assignments.");
         }
-        if (node_to > 0) {  // Not ground
-            A(row_to, node_to - 1) = 1.0;
+    }
+}
+
+// ============================================================================
+// MATRIX BUILDERS
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// buildIncidenceMatrix
+// ----------------------------------------------------------------------------
+// Constructs the UNSIGNED incidence matrix A_temp [2N × M].
+//
+// Layout: each branch k occupies two consecutive rows:
+//   row 2k   → terminal 1 of branch k  (node_from)
+//   row 2k+1 → terminal 2 of branch k  (node_to)
+//
+// Entry A_temp(row, col) = 1.0 if terminal (row) is connected to node (col+1).
+// Ground connections (node 0) produce no entry (row remains zero).
+//
+// NOTE: solve() transposes A_temp to obtain A [M × 2N] before use.
+//
+// For the rationale of using unsigned entries rather than the signed
+// convention of Eq. (3.10), see the class header documentation.
+
+Eigen::MatrixXd MNASolver::buildIncidenceMatrix() {
+    const int N = static_cast<int>(branches_.size());
+    const int M = getNumNodes();
+
+    Eigen::MatrixXd A_temp = Eigen::MatrixXd::Zero(2 * N, M);
+
+    for (int k = 0; k < N; ++k) {
+        const int node_from = branches_[k]->getNodeFrom();
+        const int node_to   = branches_[k]->getNodeTo();
+
+        // Terminal 1 row: connects to node_from
+        if (node_from > 0) {
+            A_temp(2 * k,     node_from - 1) = 1.0;   // 1-based → 0-based col
+        }
+        // Terminal 2 row: connects to node_to
+        if (node_to > 0) {
+            A_temp(2 * k + 1, node_to   - 1) = 1.0;
         }
     }
 
-    return A;
+    return A_temp;   // [2N × M]; caller transposes to [M × 2N]
 }
 
+// ----------------------------------------------------------------------------
+// buildBranchYMatrix
+// ----------------------------------------------------------------------------
+// Constructs the block-diagonal branch admittance matrix Y [2N × 2N].
+//
+// Block k occupies the sub-matrix at rows/cols [2k, 2k+1]:
+//   Y[2k  , 2k  ] = Y11   Y[2k  , 2k+1] = Y12
+//   Y[2k+1, 2k  ] = Y21   Y[2k+1, 2k+1] = Y22
+//
+// Off-diagonal blocks between different branches are zero (block-diagonal).
+
 Eigen::MatrixXcd MNASolver::buildBranchYMatrix(double f_Hz) {
-    int N_branches = branches_.size();
+    const int N = static_cast<int>(branches_.size());
+    Eigen::MatrixXcd Y = Eigen::MatrixXcd::Zero(2 * N, 2 * N);
 
-    // Y is [2*N_branches × 2*N_branches] block diagonal
-    Eigen::MatrixXcd Y = Eigen::MatrixXcd::Zero(2 * N_branches, 2 * N_branches);
+    for (int k = 0; k < N; ++k) {
+        const auto Y_branch = branches_[k]->computeYParameters(f_Hz);
 
-    for (int k = 0; k < N_branches; ++k) {
-        // Get Y-parameters for this branch
-        auto Y_branch = branches_[k]->computeYParameters(f_Hz);
-
-        // Validate Y-matrix dimensions
-        if (Y_branch.size() != 2 || Y_branch[0].size() != 2 || Y_branch[1].size() != 2) {
+        if (Y_branch.size() != 2 ||
+            Y_branch[0].size() != 2 ||
+            Y_branch[1].size() != 2) {
             throw std::runtime_error(
-                "Branch " + std::to_string(branches_[k]->getBranchID()) +
+                "MNASolver: branch " +
+                std::to_string(branches_[k]->getBranchID()) +
                 " (" + branches_[k]->getDescription() + ")" +
-                " returned invalid Y-matrix dimensions (expected 2x2)"
-                );
+                " returned a Y-matrix with invalid dimensions (expected 2×2).");
         }
 
-        // Fill 2×2 block in global Y matrix
-        int idx = 2 * k;
-        Y(idx,     idx)     = Y_branch[0][0];  // Y11
-        Y(idx,     idx + 1) = Y_branch[0][1];  // Y12
-        Y(idx + 1, idx)     = Y_branch[1][0];  // Y21
-        Y(idx + 1, idx + 1) = Y_branch[1][1];  // Y22
+        const int idx = 2 * k;
+        Y(idx,     idx    ) = Y_branch[0][0];   // Y11
+        Y(idx,     idx + 1) = Y_branch[0][1];   // Y12
+        Y(idx + 1, idx    ) = Y_branch[1][0];   // Y21
+        Y(idx + 1, idx + 1) = Y_branch[1][1];   // Y22
     }
 
     return Y;
 }
 
+// ----------------------------------------------------------------------------
+// buildSourceVector
+// ----------------------------------------------------------------------------
+// Constructs the per-terminal source voltage vector V_vec [2N × 1].
+//
+// For branch k:
+//   V_vec[2k]   = terminal-1 voltage of branch k
+//   V_vec[2k+1] = terminal-2 voltage of branch k
+//
+// For SRC_VoltageSource: getVoltageSourceVector() returns {0, V₀},
+//   placing V₀ at terminal 2 (the active node side).
+// For all passive branches: returns {0, 0}.
+//
+// The assembled V_vec is used in the RHS: −A·Y·V_vec  (Eq. 3.9).
+
 Eigen::VectorXcd MNASolver::buildSourceVector(double f_Hz) {
-    int N_branches = branches_.size();
+    const int N = static_cast<int>(branches_.size());
+    Eigen::VectorXcd V_vec = Eigen::VectorXcd::Zero(2 * N);
 
-    // V_vec is [2*N_branches × 1]
-    Eigen::VectorXcd V_vec = Eigen::VectorXcd::Zero(2 * N_branches);
+    for (int k = 0; k < N; ++k) {
+        const auto V_branch = branches_[k]->getVoltageSourceVector(f_Hz);
 
-    for (int k = 0; k < N_branches; ++k) {
-        auto V_branch = branches_[k]->getVoltageSourceVector(f_Hz);
-
-        // Validate vector size
         if (V_branch.size() != 2) {
             throw std::runtime_error(
-                "Branch " + std::to_string(branches_[k]->getBranchID()) +
-                " returned invalid source vector size (expected 2)"
-                );
+                "MNASolver: branch " +
+                std::to_string(branches_[k]->getBranchID()) +
+                " returned a source vector with invalid size (expected 2).");
         }
 
-        V_vec(2 * k)     = V_branch[0];
-        V_vec(2 * k + 1) = V_branch[1];
+        V_vec(2 * k    ) = V_branch[0];   // Terminal 1 voltage
+        V_vec(2 * k + 1) = V_branch[1];   // Terminal 2 voltage
     }
 
     return V_vec;
 }
 
+// ============================================================================
+// SOLVE — Equation (3.9): A·Y·Aᵀ·U = −A·Y·V
+// ============================================================================
+
 Eigen::VectorXcd MNASolver::solve(double f_Hz) {
-    // ========================================================================
-    // VALIDATION
-    // ========================================================================
+
+    // --- Pre-conditions ------------------------------------------------------
     if (branches_.empty()) {
-        throw std::runtime_error("MNASolver: No branches added to system");
+        throw std::runtime_error("MNASolver::solve: no branches in system.");
     }
-
-    if (f_Hz <= 0) {
-        throw std::runtime_error("MNASolver: Frequency must be positive");
+    if (f_Hz <= 0.0) {
+        throw std::runtime_error(
+            "MNASolver::solve: frequency must be positive (got " +
+            std::to_string(f_Hz) + " Hz).");
     }
-
     if (max_node_index_ == 0) {
-        throw std::runtime_error("MNASolver: No valid nodes found (all nodes are ground?)");
+        throw std::runtime_error(
+            "MNASolver::solve: no non-ground nodes found. "
+            "All branches connect to ground?");
     }
 
-    // ========================================================================
-    // BUILD SYSTEM MATRICES
-    // ========================================================================
+    // Node contiguity check: detects gaps like {1, 3} without node 2.
+    // Throws std::runtime_error with a descriptive message if a gap exists.
+    validateNodeContiguity();
 
-    // Build incidence matrix [2N × M] then transpose to [M × 2N]
-    // This matches MATLAB: A_temp = zeros(8,2); A = A_temp';
-    Eigen::MatrixXd A_temp = buildIncidenceMatrix();  // [2N × M]
-    Eigen::MatrixXd A = A_temp.transpose();            // [M × 2N] ← TRANSPOSE!
+    // --- Build system matrices -----------------------------------------------
 
-    // Build branch Y-matrix [2N × 2N] (block diagonal)
-    Eigen::MatrixXcd Y = buildBranchYMatrix(f_Hz);
+    // A_temp [2N × M]; transpose to A [M × 2N] for Eq. (3.9).
+    const Eigen::MatrixXd  A_temp  = buildIncidenceMatrix();
+    const Eigen::MatrixXd  A_real  = A_temp.transpose();          // [M × 2N]
+    const Eigen::MatrixXcd A       = A_real.cast<Complex>();       // [M × 2N] complex
 
-    // Build source vector [2N × 1]
-    Eigen::VectorXcd V_vec = buildSourceVector(f_Hz);
+    const Eigen::MatrixXcd Y       = buildBranchYMatrix(f_Hz);    // [2N × 2N]
+    const Eigen::VectorXcd V_vec   = buildSourceVector(f_Hz);     // [2N × 1 ]
 
-    // ========================================================================
-    // DEBUG OUTPUT (OPTIONAL)
-    // ========================================================================
+    // --- Debug output --------------------------------------------------------
     if (debug_mode_) {
         std::cout << std::fixed << std::setprecision(6);
-        std::cout << "\n╔════════════════════════════════════════════════════════════╗\n";
-        std::cout << "║  MNA System Debug Output @ f = " << f_Hz/1e9 << " GHz" << std::setw(20) << "║\n";
-        std::cout << "╚════════════════════════════════════════════════════════════╝\n\n";
+        std::cout << "\n╔══════════════════════════════════════════════════════════════╗\n";
+        std::cout << "║  MNASolver Debug  —  f = "
+                  << std::setw(10) << f_Hz / 1e9 << " GHz"
+                  << "                        ║\n";
+        std::cout << "╚══════════════════════════════════════════════════════════════╝\n\n";
 
-        std::cout << "System dimensions:\n";
-        std::cout << "  Branches: " << branches_.size() << "\n";
-        std::cout << "  Nodes (excl. GND): " << getNumNodes() << "\n";
-        std::cout << "  Y-matrix size: " << Y.rows() << "x" << Y.cols() << "\n";
-        std::cout << "  A-matrix size: " << A.rows() << "x" << A.cols() << "\n\n";
+        std::cout << "  Branches N = " << branches_.size()
+                  << "   Non-ground nodes M = " << getNumNodes() << "\n\n";
 
-        std::cout << "Branch descriptions:\n";
-        for (size_t k = 0; k < branches_.size(); ++k) {
-            std::cout << "  Branch " << k << ": " << branches_[k]->getDescription() << "\n";
-            std::cout << "    Nodes: " << branches_[k]->getNodeFrom()
-                      << " -> " << branches_[k]->getNodeTo() << "\n";
+        std::cout << "  Branch list:\n";
+        for (std::size_t k = 0; k < branches_.size(); ++k) {
+            std::cout << "    [" << k << "]  "
+                      << branches_[k]->getDescription()
+                      << "   nodes: "
+                      << branches_[k]->getNodeFrom()
+                      << " → " << branches_[k]->getNodeTo() << "\n";
         }
-        std::cout << "\n";
 
-        std::cout << "Incidence matrix A [" << A.rows() << "x" << A.cols() << "]:\n";
-        std::cout << A << "\n\n";
+        std::cout << "\n  Incidence matrix A [" << A.rows()
+                  << " × " << A.cols() << "]:\n" << A_real << "\n\n";
 
-        std::cout << "Branch Y-matrix (block diagonal) [" << Y.rows() << "x" << Y.cols() << "]:\n";
-        std::cout << Y << "\n\n";
+        std::cout << "  Branch Y-matrix [" << Y.rows()
+                  << " × " << Y.cols() << "]:\n" << Y << "\n\n";
 
-        std::cout << "Source vector V_vec [" << V_vec.size() << "x1]:\n";
-        std::cout << V_vec << "\n\n";
+        std::cout << "  Source vector V_vec [" << V_vec.size()
+                  << " × 1]:\n" << V_vec << "\n\n";
     }
 
-    // ========================================================================
-    // SOLVE MNA SYSTEM
-    // ========================================================================
+    // --- Assemble LHS and RHS — Eq. (3.9) -----------------------------------
+    //
+    //   LHS = A · Y · Aᵀ     [M × M]
+    //   RHS = −A · Y · V_vec  [M × 1]
 
-    // Convert A to complex for matrix operations
-    Eigen::MatrixXcd A_complex = A.cast<Complex>();
-
-    // MNA equation (Equation 3.9):
-    // A * Y * A^T * U = -A * Y * V_vec
-    //                    ↑ NEGATIVE SIGN (standard MNA convention)
-
-    Eigen::MatrixXcd LHS = A_complex * Y * A_complex.transpose();  // [M×2N]*[2N×2N]*[2N×M] = [M×M]
-    Eigen::VectorXcd RHS = -A_complex * Y * V_vec;                 // -[M×2N]*[2N×2N]*[2N×1] = [M×1]
+    const Eigen::MatrixXcd LHS = A * Y * A.adjoint();   // adjoint = conjugate-transpose;
+    // A is real so adjoint = transpose
+    const Eigen::VectorXcd RHS = -(A * Y * V_vec);
 
     if (debug_mode_) {
-        std::cout << "Reduced system LHS (A*Y*A^T) [" << LHS.rows() << "x" << LHS.cols() << "]:\n";
-        std::cout << LHS << "\n\n";
-
-        std::cout << "Reduced system RHS (-A*Y*V_vec) [" << RHS.size() << "x1]:\n";
-        std::cout << RHS << "\n\n";
+        std::cout << "  LHS  A·Y·Aᵀ  [" << LHS.rows()
+            << " × " << LHS.cols() << "]:\n" << LHS << "\n\n";
+        std::cout << "  RHS  −A·Y·V  [" << RHS.size()
+                  << " × 1]:\n"  << RHS << "\n\n";
     }
 
-    // Solve for node voltages using QR decomposition (robust solver)
-    Eigen::VectorXcd U = LHS.colPivHouseholderQr().solve(RHS);
+    // --- Solve using column-pivoting QR decomposition -----------------------
+    //
+    // colPivHouseholderQr is chosen over PartialPivLU because it handles
+    // rank-deficient or nearly singular systems (which arise near waveguide
+    // resonance frequencies) more robustly. At the matrix sizes encountered
+    // in this application (typically 2×2 to 10×10), the additional cost is
+    // negligible.
 
-    // ========================================================================
-    // VERIFY SOLUTION QUALITY
-    // ========================================================================
-    // [FIX] Guard against division by zero when RHS is zero
-    // (occurs if no sources are present or V_vec = 0)
-    double rhs_norm = RHS.norm();
-    double relative_error = (rhs_norm > 1e-15)
-                                ? (LHS * U - RHS).norm() / rhs_norm
-                                : 0.0;
+    const Eigen::VectorXcd U = LHS.colPivHouseholderQr().solve(RHS);
+
+    // --- Residual quality check ----------------------------------------------
+    const double rhs_norm        = RHS.norm();
+    const double residual_norm   = (LHS * U - RHS).norm();
+    const double relative_error  = (rhs_norm > 1e-15)
+                                      ? residual_norm / rhs_norm
+                                      : 0.0;
 
     if (debug_mode_) {
-        std::cout << "Solution node voltages U [" << U.size() << "x1]:\n";
-        std::cout << U << "\n\n";
-        std::cout << "Relative error: " << std::scientific << relative_error << "\n";
-
+        std::cout << "  Solution U [" << U.size() << " × 1]:\n"
+                  << U << "\n\n";
+        std::cout << "  Relative residual error: "
+                  << std::scientific << relative_error << "\n";
         if (relative_error > 1e-6) {
-            std::cout << "WARNING: High relative error in solution!\n";
+            std::cout << "  *** WARNING: elevated residual — check for "
+                         "near-resonance or ill-conditioned branch impedances.\n";
         }
-
-        std::cout << "════════════════════════════════════════════════════════════\n\n";
+        std::cout << "══════════════════════════════════════════════════════════════\n\n";
     }
 
-    // Warn if solution quality is poor
     if (relative_error > 1e-3) {
-        std::cerr << "WARNING: MNA solution has high relative error ("
-                  << relative_error << ")\n";
-        std::cerr << "         Solution may be inaccurate. Check for:\n";
-        std::cerr << "         - Singular or near-singular system matrix\n";
-        std::cerr << "         - Ill-conditioned branches (very large/small impedances)\n";
-        std::cerr << "         - Numerical issues at this frequency\n";
+        std::cerr << "[MNASolver] WARNING: relative residual = "
+                  << std::scientific << relative_error
+                  << " at f = " << std::fixed << f_Hz / 1e9 << " GHz.\n"
+                  << "  Possible causes: near-resonance singularity, "
+                     "ill-conditioned branch impedances, or node gap.\n";
     }
 
     return U;
+}
+
+// ============================================================================
+// SHIELDING EFFECTIVENESS — Equation (3.8)
+// ============================================================================
+//
+//   SE = −20 · log₁₀(|2 · U_obs / V₀|)   [dB]
+//
+// Parameter mapping:
+//   U        — node voltage vector from solve() (M elements, 0-based index)
+//   obs_node — 1-based node index of the observation point
+//   V0       — incident source voltage phasor (typically 1+0j)
+//
+// The observation node voltage is accessed as U(obs_node − 1) to convert
+// from 1-based node numbering to 0-based Eigen indexing.
+//
+// Special case: U_obs = 0 (numerically) → SE → +∞ dB (perfect shield).
+//   Returns std::numeric_limits<double>::infinity() in this case.
+//
+// Sign convention note:
+//   Because solve() uses the unsigned-A convention, U_obs carries an overall
+//   sign inversion relative to the theory. Since Eq. (3.8) uses |U_obs|,
+//   this inversion has no effect on the computed SE value.
+
+double MNASolver::computeSE(const Eigen::VectorXcd& U,
+                            int                     obs_node,
+                            Complex                 V0) const
+{
+    // --- Bounds check -------------------------------------------------------
+    const int M = static_cast<int>(U.size());
+    if (obs_node < 1 || obs_node > M) {
+        throw std::out_of_range(
+            "MNASolver::computeSE: obs_node = " + std::to_string(obs_node) +
+            " is out of range [1, " + std::to_string(M) + "].");
+    }
+
+    // --- Source voltage magnitude check -------------------------------------
+    const double V0_mag = std::abs(V0);
+    if (V0_mag < 1e-30) {
+        throw std::invalid_argument(
+            "MNASolver::computeSE: |V₀| is effectively zero. "
+            "Cannot compute SE ratio.");
+    }
+
+    // --- Extract observation voltage (1-based → 0-based) -------------------
+    const Complex U_obs = U(obs_node - 1);
+    const double  U_mag = std::abs(U_obs);
+
+    // --- Perfect shield special case ----------------------------------------
+    if (U_mag < 1e-30 * V0_mag) {
+        return std::numeric_limits<double>::infinity();
+    }
+
+    // --- Equation (3.8) -----------------------------------------------------
+    //   SE = −20 · log₁₀(|2 · U_obs / V₀|)
+    const double ratio = (2.0 * U_mag) / V0_mag;
+    return -20.0 * std::log10(ratio);
 }
 
 } // namespace EMCore
