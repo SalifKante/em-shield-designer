@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.19)
 project(em-shield-designer LANGUAGES CXX)
 
+# ── C++ standard ─────────────────────────────────────────────
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# ─────────────────────────────────────────────────────────────
+
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets PrintSupport)
 # Add Eigen include path (header-only library, no compilation needed)
 include_directories(${CMAKE_SOURCE_DIR}/external/eigen/eigen-5.0.0)

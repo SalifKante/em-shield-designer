@@ -26,9 +26,9 @@
 #include <QMessageBox>
 
 #ifdef _WIN32
+#define NOMINMAX        // ← prevents min/max macro pollution from windows.h
 #include <windows.h>
 #endif
-
 using namespace EMCore;
 
 // ============================================================================
@@ -90,6 +90,7 @@ std::vector<double> generateFrequencies(const FrequencySweepConfig& config) {
 // ============================================================================
 // PERFORM FREQUENCY SWEEP (EMPTY CAVITY + SLOT APERTURE)
 // ============================================================================
+/*
 FrequencySweepResults performFrequencySweep(
     const FrequencySweepConfig& config,
     double a, double b, double d, double p,
@@ -155,6 +156,7 @@ FrequencySweepResults performFrequencySweep(
     std::cout << " Done.\n";
     return results;
 }
+*/
 
 // ============================================================================
 // PERFORM FREQUENCY SWEEP (DIELECTRIC CAVITY + SLOT WITH COVER)
@@ -1082,6 +1084,7 @@ int main(int argc, char *argv[])
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
 #endif
+
 */
     /*
      QApplication app(argc, argv);
@@ -1243,8 +1246,9 @@ int main(int argc, char *argv[])
     std::cout << "  4. 3-section identical cascade     (validated via CircuitGenerator)\n";
     std::cout << "  5. 2-section different parameters  (validated via CircuitGenerator)\n";
     */
+
     #ifdef _WIN32
-    SetConsoleOutputCP(CP_UTF8);
+        SetConsoleOutputCP(CP_UTF8);
     #endif
 
     QApplication app(argc, argv);
