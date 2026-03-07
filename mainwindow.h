@@ -5,21 +5,23 @@
 #include <QVector>
 #include <QString>
 
-// Forward declarations
+// Forward declarations — Qt widgets
 class QCustomPlot;
+class QCPItemLine;
+class QCPItemText;
+class QCPItemTracer;
 class QAction;
 class QToolBar;
-class QStatusBar;
 class QLabel;
 class QSplitter;
 class QDoubleSpinBox;
 class QSpinBox;
 class QGroupBox;
-class QVBoxLayout;
 class QComboBox;
+
+// Forward declarations — application classes
 class CircuitCanvas;
 class PropertyPanel;
-
 struct SectionItemData;
 
 class MainWindow : public QMainWindow
@@ -27,70 +29,114 @@ class MainWindow : public QMainWindow
     Q_OBJECT
 
 public:
-    MainWindow(QWidget *parent = nullptr);
-    ~MainWindow();
+    explicit MainWindow(QWidget *parent = nullptr);
+    ~MainWindow() override;
 
 private slots:
+    // --- Computation ---
     void onComputeClicked();
     void onExportCSV();
+
+    // --- Preset / topology ---
     void onPresetChanged(int index);
+
+    // --- Section management ---
     void onAddSection();
     void onRemoveSection();
+
+    // --- Canvas ↔ property panel ---
     void onCanvasSelectionChanged(int sectionIndex);
     void onPropertyChanged(int sectionIndex, const SectionItemData& data);
 
+    // --- Interactive plot readout ---
+    // Called when the user clicks on the plot area.
+    // Displays a vertical crosshair, per-curve markers, and a readout box
+    // showing SE [dB] for every observation point at the clicked frequency.
+    void onPlotClicked(QMouseEvent* event);
+
 private:
+    // -----------------------------------------------------------------------
+    // Setup helpers
+    // -----------------------------------------------------------------------
     void setupUI();
     void setupToolbar();
     void setupPlot();
     void setupControlPanel();
     void setupStatusBar();
+
+    // -----------------------------------------------------------------------
+    // Analysis pipeline
+    // -----------------------------------------------------------------------
     void loadPreset(int presetId);
-
     void runAnalysis();
-    void plotResults(const QVector<double>& freqs_GHz,
+
+    // -----------------------------------------------------------------------
+    // Plot helpers
+    // -----------------------------------------------------------------------
+    void plotResults(const QVector<double>&          freqs_GHz,
                      const QVector<QVector<double>>& SE_curves,
-                     const QVector<QString>& labels);
+                     const QVector<QString>&          labels);
 
-    // --- UI Components ---
-    QCustomPlot*    m_plot;
-    QSplitter*      m_splitter;
+    // Creates / recreates interactive overlay items (crosshair, tracers,
+    // readout label) after every plotResults() call.
+    void setupPlotInteractiveItems();
 
-    // Circuit canvas
-    CircuitCanvas*  m_canvas;
+    // -----------------------------------------------------------------------
+    // UI components
+    // -----------------------------------------------------------------------
 
-    // Property panel
-    PropertyPanel*  m_propertyPanel;
+    // Plot
+    QCustomPlot*    m_plot         = nullptr;
+    QSplitter*      m_splitter     = nullptr;
 
-    // Toolbar
-    QToolBar*       m_toolbar;
-    QAction*        m_actCompute;
-    QAction*        m_actExport;
-    QAction*        m_actAddSection;
-    QAction*        m_actRemoveSection;
+    // Circuit canvas & property panel
+    CircuitCanvas*  m_canvas       = nullptr;
+    PropertyPanel*  m_propertyPanel= nullptr;
 
-    // Control panel widgets
-    QWidget*        m_leftPanel;
-    QGroupBox*      m_grpEnclosure;
-    QDoubleSpinBox* m_spinA;
-    QDoubleSpinBox* m_spinB;
-    QDoubleSpinBox* m_spinT;
+    // Toolbar actions
+    QToolBar*       m_toolbar      = nullptr;
+    QAction*        m_actCompute   = nullptr;
+    QAction*        m_actExport    = nullptr;
+    QAction*        m_actAddSection    = nullptr;
+    QAction*        m_actRemoveSection = nullptr;
 
-    QGroupBox*      m_grpFrequency;
-    QDoubleSpinBox* m_spinFstart;
-    QDoubleSpinBox* m_spinFstop;
-    QSpinBox*       m_spinPoints;
+    // Left control panel
+    QWidget*        m_leftPanel    = nullptr;
 
-    QGroupBox*      m_grpPresets;
-    QComboBox*      m_cboPreset;
+    // Enclosure group
+    QGroupBox*      m_grpEnclosure = nullptr;
+    QDoubleSpinBox* m_spinA        = nullptr;   ///< Cavity width  a [mm]
+    QDoubleSpinBox* m_spinB        = nullptr;   ///< Cavity height b [mm]
+    QDoubleSpinBox* m_spinT        = nullptr;   ///< Wall thickness t [mm]
+    QComboBox*      m_cboTopology  = nullptr;   ///< CASCADE / STAR_BRANCH selector
+
+    // Frequency group
+    QGroupBox*      m_grpFrequency = nullptr;
+    QDoubleSpinBox* m_spinFstart   = nullptr;   ///< Start frequency [MHz]
+    QDoubleSpinBox* m_spinFstop    = nullptr;   ///< Stop  frequency [MHz]
+    QSpinBox*       m_spinPoints   = nullptr;   ///< Number of frequency points
+
+    // Presets group
+    QGroupBox*      m_grpPresets   = nullptr;
+    QComboBox*      m_cboPreset    = nullptr;
 
     // Status bar
-    QLabel*         m_lblStatus;
+    QLabel*         m_lblStatus    = nullptr;
 
-    // --- Data ---
-    QVector<double>          m_freqs;
-    QVector<QVector<double>> m_SE_data;
-    QVector<QString>         m_labels;
+    // -----------------------------------------------------------------------
+    // Interactive plot overlay items
+    // (owned by QCustomPlot; pointers become invalid after clearItems())
+    // -----------------------------------------------------------------------
+    QCPItemLine*           m_crosshairLine  = nullptr;  ///< Vertical frequency cursor
+    QCPItemText*           m_readoutLabel   = nullptr;  ///< SE value readout box
+    QVector<QCPItemTracer*> m_tracers;                  ///< One dot per SE curve
+
+    // -----------------------------------------------------------------------
+    // Result data (stored for CSV export and interactive readout)
+    // -----------------------------------------------------------------------
+    QVector<double>          m_freqs;    ///< Frequency axis [GHz]
+    QVector<QVector<double>> m_SE_data; ///< SE_data[curve][freq_index] [dB]
+    QVector<QString>         m_labels;  ///< Curve labels ("P1", "P2", …)
 };
 
 #endif // MAINWINDOW_H
