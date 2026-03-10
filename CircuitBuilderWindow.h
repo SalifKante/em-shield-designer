@@ -155,7 +155,9 @@ struct ElementParams {
     double h_dielectric { 0.010 };  // dielectric layer [m] ≤ b
 
     // ── Load (Obs.Point) — shunt to ground ───────────────
-    double ZL_real    { 377.0 };  // free-space Z₀  [Ω]
+    // [FIX-D1] Default = 1e9 Ω (near-open-circuit voltage probe).
+    // Z_L = 377 Ω (old default) acts as matched load killing cavity resonances.
+    double ZL_real    { 1.0e9 };
     double ZL_imag    {   0.0 };
 };
 
@@ -480,6 +482,57 @@ public slots:
 };
 
 // ============================================================
+//  CLocaleDoubleSpinBox
+//
+//  Subclass of QDoubleSpinBox that ALWAYS uses the C locale
+//  (decimal point = '.') regardless of the system locale.
+//
+//  Root cause of the t_wall / f_start revert bug on Russian/European
+//  Windows: Qt's QDoubleSpinBox calls QLocale::toDouble() in both
+//  validate() and valueFromText(), which uses ',' as the decimal
+//  separator on these systems. Even after setLocale(QLocale::c()),
+//  Qt 5.x on some Windows builds still falls back to the system
+//  locale in the internal validator. This subclass overrides both
+//  methods to guarantee correct parsing.
+//
+//  Fix: override validate() to replace ',' with '.' before passing
+//  to the base class, and override valueFromText() to parse with
+//  QString::toDouble() which always uses '.'.
+// ============================================================
+class CLocaleDoubleSpinBox : public QDoubleSpinBox {
+public:
+    explicit CLocaleDoubleSpinBox(QWidget* parent = nullptr)
+        : QDoubleSpinBox(parent)
+    {
+        // Belt-and-suspenders: also set the locale on the object
+        setLocale(QLocale::c());
+    }
+
+    // Override validate: replace comma with period so that users can
+    // type either separator. Base class then validates the corrected string.
+    QValidator::State validate(QString& input, int& pos) const override {
+        // Replace any comma (European decimal separator) with period
+        input.replace(',', '.');
+        return QDoubleSpinBox::validate(input, pos);
+    }
+
+    // Override valueFromText: parse using the C locale (always '.')
+    double valueFromText(const QString& text) const override {
+        QString t = text;
+        t.replace(',', '.');     // accept either separator
+        t.remove(' ');           // strip any thousands separator
+        bool ok = false;
+        const double v = t.toDouble(&ok);
+        return ok ? v : minimum();
+    }
+
+    // Override textFromValue: always display with '.' as separator
+    QString textFromValue(double value) const override {
+        return QLocale::c().toString(value, 'f', decimals());
+    }
+};
+
+// ============================================================
 //  BuilderPropertyPanel — context-sensitive parameter editor
 // ============================================================
 class BuilderPropertyPanel : public QWidget {
@@ -585,18 +638,22 @@ public slots:
             addInfo("SHUNT observation tap.\n"
                     "SE at this node (Eq. 3.8):\n"
                     "SE=-20·log₁₀|2U/V₀|\n\n"
-                    "Circuit CONTINUES past\n"
-                    "this tap.\n\n"
-                    "FOR CORRECT RESULTS\n"
-                    "(matching Phase A):\n"
-                    "Split the cavity:\n"
-                    "  Cav(p) → Obs.Pt\n"
-                    "         → Cav(d-p)\n\n"
-                    "The last Cavity auto-\n"
-                    "terminates to ground\n"
-                    "(right-wall short BC).");
-            addDouble("Z_L real [Ω]:",el->params.ZL_real,-1e6,1e6,10,[=](double v){currentElement_->params.ZL_real=v;});
-            addDouble("Z_L imag [Ω]:",el->params.ZL_imag,-1e6,1e6,10,[=](double v){currentElement_->params.ZL_imag=v;});
+                    "Z_L >> Z₀ = non-loading.\n"
+                    "Default: 1e9 Ω (correct).\n"
+                    "WARNING: 377Ω = matched\n"
+                    "load → kills resonances!\n\n"
+                    "CORRECT CIRCUIT ORDER:\n"
+                    "Source → Aperture\n"
+                    "→ Cavity (L = p)\n"
+                    "→ Obs.Pt (Z=1e9)\n"
+                    "→ Cavity (L = d-p)\n"
+                    "Back-wall short added\n"
+                    "automatically.");
+            // [FIX-D4] max=1e10 covers the 1e9 default; step=1e6 for navigation
+            addDouble("Z_L real [Ω]:",el->params.ZL_real, 0.001,1.0e10,1.0e6,
+                      [=](double v){currentElement_->params.ZL_real=v;});
+            addDouble("Z_L imag [Ω]:",el->params.ZL_imag,-1.0e9,1.0e9,1.0e3,
+                      [=](double v){currentElement_->params.ZL_imag=v;});
             break;
         }
     }
@@ -644,11 +701,10 @@ private:
         .arg(CBStyle::TEXT_MUTED.red()).arg(CBStyle::TEXT_MUTED.green()).arg(CBStyle::TEXT_MUTED.blue());
     }
     void addDouble(const QString& l, double v, double mn, double mx, double step, std::function<void(double)> fn) {
-        auto* s=new QDoubleSpinBox(formWidget_);
-        // [FIX-B1] Force C locale so the spinbox always uses '.' as decimal separator
-        // regardless of system locale (Russian/European locales use ',' which causes
-        // typed values like "0.0015" to be silently rejected and reverted).
-        s->setLocale(QLocale::c());
+        // [FIX-B1] CLocaleDoubleSpinBox overrides validate()/valueFromText()/textFromValue()
+        // to guarantee '.' decimal separator on all platforms, including Russian/European
+        // Windows where Qt's default validator silently rejects typed '.' values.
+        auto* s = new CLocaleDoubleSpinBox(formWidget_);
         s->setRange(mn,mx); s->setValue(v); s->setSingleStep(step); s->setDecimals(6);
         QColor c=currentElement_?currentElement_->accentColor():CBStyle::ACCENT; s->setStyleSheet(spinSS(c));
         connect(s,QOverload<double>::of(&QDoubleSpinBox::valueChanged),this,[=](double val){fn(val);emit paramsChanged(currentElement_);});
@@ -1035,11 +1091,11 @@ private:
                 solver.addBranch(std::make_shared<LOAD_Impedance>(
                     nFrom, 0, bid,
                     Complex(ep.ZL_real, ep.ZL_imag)));
-                obsNodes.append(nFrom);                               // record observation node
+                ++obsCount;   // [FIX-D2] increment BEFORE building label
+                obsNodes.append(nFrom);
                 obsLabels.append(ep.label.isEmpty()
-                                     ? QString("P%1").arg(++obsCount)
+                                     ? QString("P%1").arg(obsCount)
                                      : ep.label);
-                if(obsCount == 0) ++obsCount;  // ensure counter advances
                 break;
             }
         }
@@ -1051,45 +1107,34 @@ private:
 
         // ── Auto short-circuit termination ────────────────────────────────────────
         //
-        // In the equivalent circuit (Fig. 3.7 / Eq. 3.18), the right wall of the
-        // enclosure is a short circuit (the enclosure is closed, V = 0 at the end).
-        // This corresponds to branch IV terminating at the ground node.
+        // The closed metallic back wall = short circuit (V = 0).
+        // We add a near-short (Z = 1e-4 Ω) at the final series node.
         //
-        // If the last element in the chain is a series element (Cavity, Aperture),
-        // the last node has no ground connection and acts as an open circuit.
-        // We must add a near-short-circuit load (Z ≪ Z₀ = 377 Ω) to ground.
+        // [FIX-D3] CRITICAL: do NOT add the short if nodeIdx is already
+        //  an observation node.  Adding a 1e-4 Ω shunt at the SAME node
+        //  as an Obs.Pt shunts V_obs ≈ 0 → SE → +∞ (the 110–172 dB symptom).
         //
-        // Condition: the last series element (ignoring Loads, which don't advance
-        // nodeIdx) left nodeIdx pointing to an ungrounded dangling node.
-        //
-        // Short-circuit value: Z = 1e-4 Ω (|Z|/Z₀ = 2.65×10⁻⁷ → Γ ≈ −1).
-        // This is numerically stable and produces |V_end| ≈ 0 to machine precision.
+        //  This collision only occurs in the 4-element circuit
+        //  (Source→Aperture→Cavity→Obs.Pt).  In the correct 5-element
+        //  circuit (…→Obs.Pt→Cavity_dp) nodeIdx points one node PAST
+        //  the observation node, so there is no collision.
         {
-            // Find the last non-Load element in circuit order
             auto lastSeries = std::find_if(
                 ordered.rbegin(), ordered.rend(),
                 [](CanvasElement* e){ return e->params.type != ElementType::Load; });
 
-            const bool lastSeriesIsPresent = (lastSeries != ordered.rend());
-            const bool nodeIsUngrounded    = (nodeIdx > 0);
+            const bool isCavityTerminated =
+                (lastSeries != ordered.rend()) &&
+                ((*lastSeries)->params.type == ElementType::EmptyCavity ||
+                 (*lastSeries)->params.type == ElementType::DielectricCavity);
 
-            if(lastSeriesIsPresent && nodeIsUngrounded)
-            {
-                // Check: the last Obs.Pt (if any) taps at nodeIdx, meaning
-                // nodeIdx is already shunted to ground via Z_L.
-                // We ONLY add the hard short if the last series element is a
-                // Cavity — implementing the right-wall short-circuit BC.
-                const ElementType lastType = (*lastSeries)->params.type;
-                const bool isCavityTerminated =
-                    (lastType == ElementType::EmptyCavity ||
-                     lastType == ElementType::DielectricCavity);
+            // [FIX-D3] guard: only add short when nodeIdx is not an obs node
+            const bool obsAtFinalNode = obsNodes.contains(nodeIdx);
 
-                if(isCavityTerminated) {
-                    // Near-short-circuit: Z = 0.0001 Ω, models closed right wall.
-                    solver.addBranch(std::make_shared<LOAD_Impedance>(
-                        nodeIdx, 0, branchId++,
-                        Complex(1e-4, 0.0)));
-                }
+            if(isCavityTerminated && !obsAtFinalNode) {
+                solver.addBranch(std::make_shared<LOAD_Impedance>(
+                    nodeIdx, 0, branchId++,
+                    Complex(1e-4, 0.0)));
             }
         }
 
