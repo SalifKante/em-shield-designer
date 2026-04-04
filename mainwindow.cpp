@@ -202,8 +202,13 @@ void MainWindow::setupControlPanel()
     m_grpFrequency = new QGroupBox("Frequency Sweep");
     QVBoxLayout* freqLayout = new QVBoxLayout;
 
-    addSpinRow(freqLayout, "Start:", m_spinFstart,    1.0,   0.1, 5000.0, " MHz");
-    addSpinRow(freqLayout, "Stop:",  m_spinFstop,  2000.0,  10.0,32000.0, " MHz");
+    // addSpinRow(freqLayout, "Start:", m_spinFstart,    1.0,   0.1, 5000.0, " MHz");
+    // addSpinRow(freqLayout, "Stop:",  m_spinFstop,  2000.0,  10.0,32000.0, " MHz");
+
+    addSpinRow(freqLayout, "Start:", m_spinFstart,    1.0,   0.1,  5000.0, " MHz");
+
+    addSpinRow(freqLayout, "Stop:",  m_spinFstop,  2000.0,  10.0, 40000.0, " MHz");
+
 
     {
         QHBoxLayout* ptsRow = new QHBoxLayout;

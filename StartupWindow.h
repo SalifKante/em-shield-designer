@@ -41,6 +41,14 @@ public:
 
 signals:
     void quickSimulationClicked();
+    void startupClosed();
+
+protected:
+    void closeEvent(QCloseEvent* event) override
+    {
+        emit startupClosed();          // ← tells main.cpp to quit cleanly
+        QWidget::closeEvent(event);
+    }
 
 protected:
     void paintEvent(QPaintEvent*) override

@@ -373,32 +373,16 @@ static int runValidationSuite()
 // ============================================================================
 // SECTION 2 — APPLICATION ENTRY POINT
 // ============================================================================
-
 int main(int argc, char* argv[])
 {
-    // -----------------------------------------------------------------------
-    // Platform-specific setup
-    // -----------------------------------------------------------------------
 #ifdef _WIN32
-    // Enable UTF-8 output in the Windows console (UTF-8 code page 65001).
-    // Must be called before any std::cout output.
     SetConsoleOutputCP(CP_UTF8);
 #endif
 
-    // -----------------------------------------------------------------------
-    // Validation build — run test suite, skip Qt event loop
-    // -----------------------------------------------------------------------
 #ifdef EMSHIELD_RUN_TESTS
     return runValidationSuite();
 #endif
 
-    // -----------------------------------------------------------------------
-    // Qt application initialisation
-    // -----------------------------------------------------------------------
-
-    // HiDPI support: enable before constructing QApplication.
-    // Qt 5: requires both attributes.
-    // Qt 6: these attributes are accepted but no-ops (HiDPI is always on).
     QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
     QApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
 
@@ -408,37 +392,45 @@ int main(int argc, char* argv[])
     app.setApplicationVersion("1.0");
     app.setOrganizationName("TUSUR");
 
-    // -----------------------------------------------------------------------
-    // Top-level exception boundary
-    // -----------------------------------------------------------------------
-    // Qt's event loop does not catch C++ exceptions; any unhandled exception
-    // that escapes a slot will call std::terminate().  We wrap the entire
-    // startup and event-loop execution here so that an unexpected exception
-    // produces a readable error dialog rather than a silent crash.
+    // ── FIX 1 ───────────────────────────────────────────────────────────────
+    // Prevent Qt from quitting automatically when MainWindow closes.
+    // Must be set before any window is created.
+    app.setQuitOnLastWindowClosed(false);
+    // ────────────────────────────────────────────────────────────────────────
 
     try {
-        // -------------------------------------------------------------------
-        // Startup window
-        // -------------------------------------------------------------------
         auto* startup = new StartupWindow;
 
-        // Quick Simulation → open MainWindow and dismiss startup screen
+        // ── FIX 2 ───────────────────────────────────────────────────────────
+        // Quick Simulation: show MainWindow, hide startup.
+        // When MainWindow is destroyed, bring startup back.
+        // deleteLater() removed — startup must stay alive.
         QObject::connect(startup, &StartupWindow::quickSimulationClicked,
                          [startup]()
                          {
                              startup->hide();
+
                              auto* mw = new MainWindow;
                              mw->setAttribute(Qt::WA_DeleteOnClose);
-                             mw->show();
-                             startup->deleteLater();
-                         });
 
-        // Circuit Builder mode — reserved for future implementation (Phase B).
-        // When implemented, connect StartupWindow::circuitBuilderClicked here
-        // and instantiate CircuitBuilderWindow instead of MainWindow.
+                             // MainWindow closed → startup reappears
+                             QObject::connect(mw, &QObject::destroyed,
+                                              startup, [startup]()
+                                              {
+                                                  startup->show();
+                                              });
+
+                             mw->show();
+                         });
+        // ────────────────────────────────────────────────────────────────────
+
+        // ── FIX 3 ───────────────────────────────────────────────────────────
+        // Closing the startup window itself quits the application cleanly.
+        QObject::connect(startup, &StartupWindow::startupClosed,
+                         &app, &QApplication::quit);
+        // ────────────────────────────────────────────────────────────────────
 
         startup->show();
-
         return app.exec();
 
     } catch (const std::exception& e) {
