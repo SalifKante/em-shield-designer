@@ -40,6 +40,7 @@ using namespace EMCore;
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
+    setAttribute(Qt::WA_QuitOnClose, false);
     setWindowTitle("EMShieldDesigner — Shielding Effectiveness Analyser");
     resize(1400, 750);
 
@@ -176,7 +177,7 @@ void MainWindow::setupControlPanel()
     };
 
     addSpinRow(encLayout, "Width (a):",  m_spinA, 300.0, 10.0, 2000.0, " mm");
-    addSpinRow(encLayout, "Height (b):", m_spinB, 120.0, 10.0, 2000.0, " mm");
+    addSpinRow(encLayout, "Height (b):", m_spinB, 120.0, 1.0, 2000.0, " mm");
     addSpinRow(encLayout, "Wall (t):",   m_spinT,   1.5,  0.1,   50.0, " mm");
 
     // ---- Topology selector ----

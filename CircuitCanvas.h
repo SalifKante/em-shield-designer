@@ -56,6 +56,17 @@ public:
                 this, &CircuitCanvas::onSelectionChanged);
     }
 
+    // ── Destructor ────────────────────────────────────────────────────────
+    // Disconnect m_scene before it is destroyed as a Qt child.
+    // Without this, QGraphicsScene::selectionChanged fires during teardown
+    // and calls back into the already-partially-destroyed CircuitCanvas,
+    // causing the Qt ASSERT "Called object is not of the correct type".
+    ~CircuitCanvas() override
+    {
+        if (m_scene)
+            m_scene->disconnect();
+    }
+
     // ── Public API ────────────────────────────────────────────────────
 
     // [C2] Called by MainWindow whenever the topology combo changes.

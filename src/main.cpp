@@ -74,9 +74,6 @@ using namespace EMCore;
 
 #ifdef EMSHIELD_RUN_TESTS
 
-// ---------------------------------------------------------------------------
-// Helper: run one SE test and report PASS / FAIL
-// ---------------------------------------------------------------------------
 static bool checkSE(const std::string& label,
                     double             computed,
                     double             reference,
@@ -92,13 +89,6 @@ static bool checkSE(const std::string& label,
     return pass;
 }
 
-// ---------------------------------------------------------------------------
-// Validation frequency: "Point 53" in the 200-point sweep
-//
-// Definition matches the original MATLAB reference dataset:
-//   f_step = (f_stop − f_start) / num_points    ← NOT /(n−1) — see note above
-//   f_53   = f_start + 52 × f_step
-// ---------------------------------------------------------------------------
 static double point53Frequency()
 {
     constexpr double f_start    = 1.0e6;
@@ -108,232 +98,137 @@ static double point53Frequency()
     return f_start + 52.0 * fstep;
 }
 
-// ---------------------------------------------------------------------------
-// TEST 1 — Single-section (1-Section baseline)
-//
-// Reference (c = 3e8):  SE_P1 @ Point 53 = 24.142022 dB
-// ---------------------------------------------------------------------------
 static bool testOneSectionBaseline()
 {
     std::cout << "\n--- TEST 1: 1-Section baseline ---\n";
-
     EnclosureConfig cfg;
     cfg.a = 0.300;  cfg.b = 0.120;  cfg.t = 0.0015;
     cfg.topology = TopologyType::CASCADE;
-
     SectionConfig sec;
-    sec.depth         = 0.300;
-    sec.obs_position  = 0.150;
-    sec.has_observation = true;
-    sec.aperture_l    = 0.08;
-    sec.aperture_w    = 0.08;
-    cfg.sections      = { sec };
-
+    sec.depth = 0.300; sec.obs_position = 0.150; sec.has_observation = true;
+    sec.aperture_l = 0.08; sec.aperture_w = 0.08;
+    cfg.sections = { sec };
     MNASolver solver;
     const auto obs = CircuitGenerator::generate(cfg, solver, false);
-
     const double f53 = point53Frequency();
     const auto   SE  = CircuitGenerator::computeSE(solver, obs, cfg, f53);
-
     std::cout << "  Point 53 — f = " << std::fixed << std::setprecision(3)
               << f53 / 1e6 << " MHz\n";
     return checkSE("SE_P1", SE[0], 24.142022);
 }
 
-// ---------------------------------------------------------------------------
-// TEST 2 — Two-section identical cascade (Figure 3.10)
-//
-// Reference (c = 3e8):
-//   SE_P1 @ Point 53 = 23.971428 dB
-//   SE_P2 @ Point 53 = 58.362361 dB
-// ---------------------------------------------------------------------------
 static bool testTwoSectionIdentical()
 {
     std::cout << "\n--- TEST 2: 2-Section identical (Figure 3.10) ---\n";
-
     EnclosureConfig cfg;
     cfg.a = 0.300;  cfg.b = 0.120;  cfg.t = 0.0015;
     cfg.topology = TopologyType::CASCADE;
-
     SectionConfig sec;
-    sec.depth         = 0.300;
-    sec.obs_position  = 0.150;
-    sec.has_observation = true;
-    sec.aperture_l    = 0.08;
-    sec.aperture_w    = 0.08;
-    cfg.sections      = { sec, sec };
-
+    sec.depth = 0.300; sec.obs_position = 0.150; sec.has_observation = true;
+    sec.aperture_l = 0.08; sec.aperture_w = 0.08;
+    cfg.sections = { sec, sec };
     MNASolver solver;
     const auto obs = CircuitGenerator::generate(cfg, solver, false);
-
     const double f53 = point53Frequency();
     const auto   SE  = CircuitGenerator::computeSE(solver, obs, cfg, f53);
-
     std::cout << "  Point 53 — f = " << std::fixed << std::setprecision(3)
               << f53 / 1e6 << " MHz\n";
     const bool p1 = checkSE("SE_P1", SE[0], 23.971428);
     const bool p2 = checkSE("SE_P2", SE[1], 58.362361);
-
-    // Full sweep — mean SE summary
-    constexpr int    n_pts   = 200;
-    constexpr double f_start = 1.0e6;
-    constexpr double f_stop  = 2.0e9;
-    const double     fstep   = (f_stop - f_start) / n_pts;
-
+    constexpr int n_pts = 200;
+    constexpr double f_start = 1.0e6, f_stop = 2.0e9;
+    const double fstep = (f_stop - f_start) / n_pts;
     std::vector<double> mean_acc(obs.size(), 0.0);
     for (int i = 0; i < n_pts; ++i) {
-        const double f  = f_start + i * fstep;
-        const auto   se = CircuitGenerator::computeSE(solver, obs, cfg, f);
-        for (std::size_t oi = 0; oi < obs.size(); ++oi)
-            mean_acc[oi] += se[oi];
+        const auto se = CircuitGenerator::computeSE(solver, obs, cfg, f_start + i * fstep);
+        for (std::size_t oi = 0; oi < obs.size(); ++oi) mean_acc[oi] += se[oi];
     }
     std::cout << "  Full-sweep mean SE (200 pts):\n";
-    for (std::size_t oi = 0; oi < obs.size(); ++oi) {
+    for (std::size_t oi = 0; oi < obs.size(); ++oi)
         std::cout << "    SE_" << obs[oi].label << " mean = "
-                  << std::fixed << std::setprecision(2)
-                  << mean_acc[oi] / n_pts << " dB\n";
-    }
+                  << std::fixed << std::setprecision(2) << mean_acc[oi] / n_pts << " dB\n";
     std::cout << "    MATLAB reference means: P1 ≈ 16.03 dB, P2 ≈ 34.62 dB\n";
-
     return p1 && p2;
 }
 
-// ---------------------------------------------------------------------------
-// TEST 3 — Three-section identical cascade (Figure 3.10, N=3)
-//
-// Reference (c = 3e8):
-//   SE_P1 @ Point 53 = 23.971364 dB
-//   SE_P2 @ Point 53 = 58.191795 dB
-//   SE_P3 @ Point 53 = 92.582727 dB
-// ---------------------------------------------------------------------------
 static bool testThreeSectionIdentical()
 {
     std::cout << "\n--- TEST 3: 3-Section identical (Figure 3.10, N=3) ---\n";
-
     EnclosureConfig cfg;
     cfg.a = 0.300;  cfg.b = 0.120;  cfg.t = 0.0015;
     cfg.topology = TopologyType::CASCADE;
-
     SectionConfig sec;
-    sec.depth         = 0.300;
-    sec.obs_position  = 0.150;
-    sec.has_observation = true;
-    sec.aperture_l    = 0.08;
-    sec.aperture_w    = 0.08;
-    cfg.sections      = { sec, sec, sec };
-
+    sec.depth = 0.300; sec.obs_position = 0.150; sec.has_observation = true;
+    sec.aperture_l = 0.08; sec.aperture_w = 0.08;
+    cfg.sections = { sec, sec, sec };
     MNASolver solver;
     const auto obs = CircuitGenerator::generate(cfg, solver, false);
-
     const double f53 = point53Frequency();
     const auto   SE  = CircuitGenerator::computeSE(solver, obs, cfg, f53);
-
     std::cout << "  Point 53 — f = " << std::fixed << std::setprecision(3)
               << f53 / 1e6 << " MHz\n";
     const bool p1 = checkSE("SE_P1", SE[0], 23.971364);
     const bool p2 = checkSE("SE_P2", SE[1], 58.191795);
     const bool p3 = checkSE("SE_P3", SE[2], 92.582727);
-
-    constexpr int    n_pts   = 200;
-    constexpr double f_start = 1.0e6;
-    constexpr double f_stop  = 2.0e9;
-    const double     fstep   = (f_stop - f_start) / n_pts;
-
+    constexpr int n_pts = 200;
+    constexpr double f_start = 1.0e6, f_stop = 2.0e9;
+    const double fstep = (f_stop - f_start) / n_pts;
     std::vector<double> mean_acc(obs.size(), 0.0);
     for (int i = 0; i < n_pts; ++i) {
-        const double f  = f_start + i * fstep;
-        const auto   se = CircuitGenerator::computeSE(solver, obs, cfg, f);
-        for (std::size_t oi = 0; oi < obs.size(); ++oi)
-            mean_acc[oi] += se[oi];
+        const auto se = CircuitGenerator::computeSE(solver, obs, cfg, f_start + i * fstep);
+        for (std::size_t oi = 0; oi < obs.size(); ++oi) mean_acc[oi] += se[oi];
     }
     std::cout << "  Full-sweep mean SE (200 pts):\n";
-    for (std::size_t oi = 0; oi < obs.size(); ++oi) {
+    for (std::size_t oi = 0; oi < obs.size(); ++oi)
         std::cout << "    SE_" << obs[oi].label << " mean = "
-                  << std::fixed << std::setprecision(2)
-                  << mean_acc[oi] / n_pts << " dB\n";
-    }
-    std::cout << "    MATLAB reference means: P1 ≈ 16.09 dB,"
-                 " P2 ≈ 34.73 dB, P3 ≈ 53.12 dB\n";
-
+                  << std::fixed << std::setprecision(2) << mean_acc[oi] / n_pts << " dB\n";
+    std::cout << "    MATLAB reference means: P1 ≈ 16.09 dB, P2 ≈ 34.73 dB, P3 ≈ 53.12 dB\n";
     return p1 && p2 && p3;
 }
 
-// ---------------------------------------------------------------------------
-// TEST 4 — Two-section cascade with different parameters
-//
-// Reference (c = 3e8):
-//   SE_P1 @ Point 53 = 24.093145 dB
-//   SE_P2 @ Point 53 = 69.811831 dB
-// ---------------------------------------------------------------------------
 static bool testTwoSectionDifferent()
 {
     std::cout << "\n--- TEST 4: 2-Section different parameters ---\n";
-
     EnclosureConfig cfg;
     cfg.a = 0.300;  cfg.b = 0.120;  cfg.t = 0.0015;
     cfg.topology = TopologyType::CASCADE;
-
     SectionConfig sec1;
-    sec1.depth         = 0.300;
-    sec1.obs_position  = 0.150;
-    sec1.has_observation = true;
-    sec1.aperture_l    = 0.08;
-    sec1.aperture_w    = 0.08;
-
+    sec1.depth = 0.300; sec1.obs_position = 0.150; sec1.has_observation = true;
+    sec1.aperture_l = 0.08; sec1.aperture_w = 0.08;
     SectionConfig sec2;
-    sec2.depth         = 0.200;
-    sec2.obs_position  = 0.100;
-    sec2.has_observation = true;
-    sec2.aperture_l    = 0.05;
-    sec2.aperture_w    = 0.05;
-
+    sec2.depth = 0.200; sec2.obs_position = 0.100; sec2.has_observation = true;
+    sec2.aperture_l = 0.05; sec2.aperture_w = 0.05;
     cfg.sections = { sec1, sec2 };
-
     MNASolver solver;
     const auto obs = CircuitGenerator::generate(cfg, solver, false);
-
     const double f53 = point53Frequency();
     const auto   SE  = CircuitGenerator::computeSE(solver, obs, cfg, f53);
-
     std::cout << "  Point 53 — f = " << std::fixed << std::setprecision(3)
               << f53 / 1e6 << " MHz\n";
     const bool p1 = checkSE("SE_P1", SE[0], 24.093145);
     const bool p2 = checkSE("SE_P2", SE[1], 69.811831);
-
-    constexpr int    n_pts   = 200;
-    constexpr double f_start = 1.0e6;
-    constexpr double f_stop  = 2.0e9;
-    const double     fstep   = (f_stop - f_start) / n_pts;
-
+    constexpr int n_pts = 200;
+    constexpr double f_start = 1.0e6, f_stop = 2.0e9;
+    const double fstep = (f_stop - f_start) / n_pts;
     std::vector<double> mean_acc(obs.size(), 0.0);
     for (int i = 0; i < n_pts; ++i) {
-        const double f  = f_start + i * fstep;
-        const auto   se = CircuitGenerator::computeSE(solver, obs, cfg, f);
-        for (std::size_t oi = 0; oi < obs.size(); ++oi)
-            mean_acc[oi] += se[oi];
+        const auto se = CircuitGenerator::computeSE(solver, obs, cfg, f_start + i * fstep);
+        for (std::size_t oi = 0; oi < obs.size(); ++oi) mean_acc[oi] += se[oi];
     }
     std::cout << "  Full-sweep mean SE (200 pts):\n";
-    for (std::size_t oi = 0; oi < obs.size(); ++oi) {
+    for (std::size_t oi = 0; oi < obs.size(); ++oi)
         std::cout << "    SE_" << obs[oi].label << " mean = "
-                  << std::fixed << std::setprecision(2)
-                  << mean_acc[oi] / n_pts << " dB\n";
-    }
+                  << std::fixed << std::setprecision(2) << mean_acc[oi] / n_pts << " dB\n";
     std::cout << "    MATLAB reference means: P1 ≈ 15.93 dB, P2 ≈ 47.70 dB\n";
-
     return p1 && p2;
 }
 
-// ---------------------------------------------------------------------------
-// Run all validation tests; return 0 if all pass, 1 otherwise
-// ---------------------------------------------------------------------------
 static int runValidationSuite()
 {
-    std::cout << "\n";
-    std::cout << std::string(70, '=') << "\n";
+    std::cout << "\n" << std::string(70, '=') << "\n";
     std::cout << "EMShieldDesigner — Physics Engine Validation Suite\n";
     std::cout << std::string(70, '=') << "\n";
-    std::cout << "\nC_LIGHT = " << std::fixed << std::setprecision(0)
-              << C_LIGHT << " m/s\n";
+    std::cout << "\nC_LIGHT = " << std::fixed << std::setprecision(0) << C_LIGHT << " m/s\n";
     std::cout << "Z_0     = " << std::setprecision(6) << Z_0 << " Ω\n";
     std::cout << "Point 53 frequency = " << std::setprecision(6)
               << point53Frequency() / 1e6 << " MHz\n";
@@ -341,30 +236,18 @@ static int runValidationSuite()
     std::cout << "      FAIL results are expected until MATLAB references are\n";
     std::cout << "      re-computed with physconst('LightSpeed') = 299792458 m/s.\n";
     std::cout << std::string(70, '-') << "\n";
-
     bool all_pass = true;
-
     try { all_pass &= testOneSectionBaseline();    }
-    catch (const std::exception& e)
-    { std::cerr << "  EXCEPTION: " << e.what() << "\n"; all_pass = false; }
-
+    catch (const std::exception& e) { std::cerr << "  EXCEPTION: " << e.what() << "\n"; all_pass = false; }
     try { all_pass &= testTwoSectionIdentical();   }
-    catch (const std::exception& e)
-    { std::cerr << "  EXCEPTION: " << e.what() << "\n"; all_pass = false; }
-
+    catch (const std::exception& e) { std::cerr << "  EXCEPTION: " << e.what() << "\n"; all_pass = false; }
     try { all_pass &= testThreeSectionIdentical(); }
-    catch (const std::exception& e)
-    { std::cerr << "  EXCEPTION: " << e.what() << "\n"; all_pass = false; }
-
+    catch (const std::exception& e) { std::cerr << "  EXCEPTION: " << e.what() << "\n"; all_pass = false; }
     try { all_pass &= testTwoSectionDifferent();   }
-    catch (const std::exception& e)
-    { std::cerr << "  EXCEPTION: " << e.what() << "\n"; all_pass = false; }
-
+    catch (const std::exception& e) { std::cerr << "  EXCEPTION: " << e.what() << "\n"; all_pass = false; }
     std::cout << "\n" << std::string(70, '=') << "\n";
-    std::cout << "Overall result: " << (all_pass ? "ALL PASS ✓" : "FAILURES DETECTED ✗")
-              << "\n";
+    std::cout << "Overall result: " << (all_pass ? "ALL PASS ✓" : "FAILURES DETECTED ✗") << "\n";
     std::cout << std::string(70, '=') << "\n\n";
-
     return all_pass ? 0 : 1;
 }
 
@@ -373,6 +256,7 @@ static int runValidationSuite()
 // ============================================================================
 // SECTION 2 — APPLICATION ENTRY POINT
 // ============================================================================
+
 int main(int argc, char* argv[])
 {
 #ifdef _WIN32
@@ -403,22 +287,36 @@ int main(int argc, char* argv[])
 
         // ── FIX 2 ───────────────────────────────────────────────────────────
         // Quick Simulation: show MainWindow, hide startup.
-        // When MainWindow is destroyed, bring startup back.
-        // deleteLater() removed — startup must stay alive.
+        // When MainWindow is fully destroyed, bring startup back.
+        // Qt::QueuedConnection ensures startup->show() fires only AFTER
+        // MainWindow and all its children (CircuitCanvas etc.) are completely
+        // destroyed — prevents the "Called object is not of the correct type"
+        // ASSERT crash that occurs with a direct connection.
         QObject::connect(startup, &StartupWindow::quickSimulationClicked,
                          [startup]()
                          {
                              startup->hide();
 
                              auto* mw = new MainWindow;
+
+                             // ── FIX 2a ──────────────────────────────────
+                             // Prevent QMainWindow's default WA_QuitOnClose
+                             // from force-quitting the app when mw closes.
+                             mw->setAttribute(Qt::WA_QuitOnClose, false);
+                             // ────────────────────────────────────────────
+
                              mw->setAttribute(Qt::WA_DeleteOnClose);
 
-                             // MainWindow closed → startup reappears
+                             // ── FIX 2b ──────────────────────────────────
+                             // QueuedConnection: fires after full teardown,
+                             // not mid-destruction — eliminates the ASSERT.
                              QObject::connect(mw, &QObject::destroyed,
                                               startup, [startup]()
                                               {
                                                   startup->show();
-                                              });
+                                              },
+                                              Qt::QueuedConnection);
+                             // ────────────────────────────────────────────
 
                              mw->show();
                          });
