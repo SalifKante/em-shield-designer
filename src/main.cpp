@@ -31,6 +31,7 @@
 #include "../include/core/MNASolver.h"
 
 #include <QApplication>
+#include <QIcon>
 #include <QMessageBox>
 
 #include <iostream>
@@ -267,14 +268,29 @@ int main(int argc, char* argv[])
     return runValidationSuite();
 #endif
 
-    QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
-    QApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
+    // NOTE: In Qt 6, high-DPI scaling and high-DPI pixmaps are always enabled.
+    // The Qt::AA_EnableHighDpiScaling and Qt::AA_UseHighDpiPixmaps attributes
+    // are deprecated no-ops and have been removed.
 
     QApplication app(argc, argv);
     app.setApplicationName("EMShieldDesigner");
     app.setApplicationDisplayName("EMShield Designer");
     app.setApplicationVersion("1.0");
     app.setOrganizationName("TUSUR");
+
+    // ── APPLICATION ICON ────────────────────────────────────────────────────
+    // Embedded via the Qt resource system (resources/resources.qrc).
+    // Qt propagates this icon as the default QIcon for every top-level window
+    // constructed afterward — StartupWindow, MainWindow, all dialogs — so
+    // no per-window setWindowIcon() call is needed.
+    //
+    // The .exe file icon itself (as shown in Windows Explorer / taskbar
+    // when the app is not running) is handled separately via the Windows
+    // resource script resources/app.rc, which embeds emshield.ico into the
+    // executable at link time. The two mechanisms cover different display
+    // contexts and do not conflict.
+    app.setWindowIcon(QIcon(":/icons/emshield_256.png"));
+    // ────────────────────────────────────────────────────────────────────────
 
     // ── FIX 1 ───────────────────────────────────────────────────────────────
     // Prevent Qt from quitting automatically when MainWindow closes.

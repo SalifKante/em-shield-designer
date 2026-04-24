@@ -7,11 +7,22 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # ─────────────────────────────────────────────────────────────
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets PrintSupport)
+
 # Add Eigen include path (header-only library, no compilation needed)
 include_directories(${CMAKE_SOURCE_DIR}/external/eigen/eigen-5.0.0)
+
 add_definitions(-DDEBUG_APERTURE)
 
 qt_standard_project_setup()
+
+# ── Windows resource script (embeds .ico into .exe) ──────────
+# Only compiled on Windows. On other platforms the variable is
+# empty and no .rc file is added to the source list.
+set(APP_WIN_RESOURCE "")
+if(WIN32)
+    set(APP_WIN_RESOURCE "${CMAKE_SOURCE_DIR}/resources/app.rc")
+endif()
+# ─────────────────────────────────────────────────────────────
 
 qt_add_executable(em-shield-designer
     WIN32 MACOSX_BUNDLE
@@ -37,6 +48,14 @@ qt_add_executable(em-shield-designer
     PropertyPanel.h
     StartupWindow.h
     CircuitBuilderWindow.h
+    resources/resources.qrc
+    ${APP_WIN_RESOURCE}
+)
+
+# macOS bundle icon file name (ignored on other platforms).
+# Harmless to leave in; has no effect on Windows builds.
+set_target_properties(em-shield-designer PROPERTIES
+    MACOSX_BUNDLE_ICON_FILE "emshield.icns"
 )
 
 target_link_libraries(em-shield-designer

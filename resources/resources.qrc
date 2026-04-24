@@ -1,0 +1,13 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <qresource prefix="/icons">
+        <file alias="emshield.ico">icons/emshield.ico</file>
+        <file alias="emshield_16.png">icons/emshield_16.png</file>
+        <file alias="emshield_24.png">icons/emshield_24.png</file>
+        <file alias="emshield_32.png">icons/emshield_32.png</file>
+        <file alias="emshield_48.png">icons/emshield_48.png</file>
+        <file alias="emshield_64.png">icons/emshield_64.png</file>
+        <file alias="emshield_128.png">icons/emshield_128.png</file>
+        <file alias="emshield_256.png">icons/emshield_256.png</file>
+    </qresource>
+</RCC>
