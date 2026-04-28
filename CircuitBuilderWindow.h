@@ -5,18 +5,38 @@
 //
 //  Architecture overview (matches mainwindow.cpp / Phase A):
 //
-//  ┌─────────────┐    ┌────────────────────────────────────┐
-//  │ BuilderProp │    │  AssemblyCanvas (drag-and-drop)    │
-//  │   Panel     │    │  Elements ordered left → right:    │
-//  │             │    │  [Source]→[Aperture]→[Cavity]→[Obs]│
-//  └─────────────┘    └────────────────────────────────────┘
-//                     ┌────────────────────────────────────┐
-//                     │  QCustomPlot  (matches Phase A)    │
-//                     │  N Obs.Points → N SE curves        │
-//                     │  Click-to-read interactive overlay │
-//                     └────────────────────────────────────┘
+//  ┌─────────────────────────┐    ┌──────────────────────────┐
+//  │  Left panel (vertical)  │    │  AssemblyCanvas (DnD)    │
+//  │   • Brand strip         │    │  Source→Ap→Cav→Obs       │
+//  │   • Property editor     │    └──────────────────────────┘
+//  │   • Elements palette    │    ┌──────────────────────────┐
+//  │   • Actions             │    │  QCustomPlot             │
+//  │   • Compute / Export    │    │  N Obs.Points → N curves │
+//  └─────────────────────────┘    └──────────────────────────┘
 //
-//  Key design decisions:
+//  Task 1.2 changes (move toolbar buttons to left panel):
+//    [T1.2-A] Removed the horizontal QToolBar that hosted the
+//             palette and action buttons.
+//    [T1.2-B] Relocated all element-type buttons and action
+//             buttons (Arrange / Delete / Clear / Compute /
+//             Export CSV) into the left panel below the
+//             existing PROPERTIES section.
+//    [T1.2-C] Redesigned PaletteButton as a horizontal full-
+//             width tile with a 16×16 inline icon on the left
+//             and a centred-left text label.  Drag behaviour
+//             is preserved exactly.
+//    [T1.2-D] All button styling moved to Styles.h and applied
+//             via QSS with normal / hover / pressed / disabled
+//             states.  Compute is rendered as a primary action
+//             (filled accent, bold, taller).
+//    [T1.2-E] Switched all C++20-deprecated `[=]` lambdas to
+//             explicit `[this]` / `[this, x]` captures to
+//             eliminate the 26 implicit-`this` warnings the
+//             compiler reported in CircuitBuilderWindow.h.
+//    [T1.2-F] Brand strip ("EMShieldBuilder") relocated from
+//             the deleted toolbar to the top of the left panel.
+//
+//  Key design decisions (preserved from before Task 1.2):
 //  [D1] Obs.Point (Load) is a SHUNT tap: connects nFrom→0.
 //       nodeIdx is NOT incremented after a Load.
 //       The circuit continues from the same node.
@@ -34,7 +54,6 @@
 
 #include <QMainWindow>
 #include <QWidget>
-#include <QToolBar>
 #include <QFrame>
 #include <QGraphicsView>
 #include <QGraphicsScene>
@@ -109,6 +128,12 @@ inline const QColor TEXT      {  24,  36,  32 };
 inline const QColor TEXT_MUTED{  90, 115, 105 };
 inline const QColor TEXT_DIM  { 150, 175, 165 };
 }
+#define CBSTYLE_DECLARED 1
+
+#include "Styles.h"   // [T1.2-D] central QSS + button factory
+
+// NOTE: StackLayerPanel.h is included AFTER class CanvasElement is declared,
+// further down in this file. See [T1.4-INCLUDE] marker below.
 
 // ============================================================
 //  ElementType
@@ -162,136 +187,307 @@ struct ElementParams {
 };
 
 // ============================================================
-//  Pure-QPainter 3-D element icons
+//  Schematic-style element painters (Task 1.3)
+//
+//  Design principles:
+//    * Two-tone strokes only — no gradients, no fills with
+//      shading, no drop shadows, no isometric pseudo-3D.
+//    * Each silhouette is distinct so types are recognisable
+//      from shape alone, even without colour.
+//    * Selection state is signalled by the caller painting the
+//      bounding chrome around the icon; the icon's own stroke
+//      width changes from 1 px (idle) to 1.6 px (selected) so
+//      the silhouette looks bolder when picked.
+//    * The accent colour appears only as a small "type chip"
+//      at the top-right corner — a 3-color budget per state
+//      is preserved (neutral stroke, transparent body, accent
+//      chip).
+//    * The same draw functions render correctly at canvas size
+//      (~82×72 px) and at button-icon size (16×16 px) because
+//      every dimension is proportional to the supplied rect.
 // ============================================================
 namespace ElementIcon {
 
-static void drawAperture(QPainter* p, QRectF r, bool sel=false)
+// Stroke width for idle vs. selected (selected gets a slightly bolder
+// silhouette so it pops without changing shape).
+inline qreal strokeWidth(bool sel) { return sel ? 1.6 : 1.0; }
+
+// Type chip — a small filled square in the top-right corner of the icon
+// rect that carries the element's accent colour. Acts as a colour key
+// that survives even when the icon shape is small.
+static void drawTypeChip(QPainter* p, QRectF r, const QColor& accent)
+{
+    const qreal s = qMax<qreal>(3.0, qMin(r.width(), r.height()) * 0.10);
+    const QRectF chip(r.right() - s - 2.0, r.top() + 2.0, s, s);
+    p->setPen(Qt::NoPen);
+    p->setBrush(accent);
+    p->drawRect(chip);
+}
+
+// ── Source — circle with sine-wave glyph (signal-source schematic) ──────
+static void drawSource(QPainter* p, QRectF r, bool sel = false)
 {
     p->save();
-    p->setRenderHint(QPainter::Antialiasing);
-    QColor front = sel ? QColor(155,195,240) : QColor(180,210,240);
-    QColor topF  = sel ? QColor(190,215,245) : QColor(210,228,248);
-    QColor side  = sel ? QColor(120,165,220) : QColor(145,185,225);
-    QPen pen(sel ? CBStyle::ACCENT : CBStyle::BORDER, sel?1.5:0.8);
-    double w=r.width(),h=r.height(),ox=r.x(),oy=r.y(),d=w*0.12;
-    QRectF fr(ox,oy+d,w-d,h-d);
-    p->setPen(pen); p->setBrush(front); p->drawRect(fr);
-    QPolygonF tp; tp<<QPointF(ox,oy+d)<<QPointF(ox+d,oy)<<QPointF(ox+w,oy)<<QPointF(ox+w-d,oy+d);
-    p->setBrush(topF); p->drawPolygon(tp);
-    QPolygonF rt; rt<<QPointF(ox+w-d,oy+d)<<QPointF(ox+w,oy)<<QPointF(ox+w,oy+h-d)<<QPointF(ox+w-d,oy+h);
-    p->setBrush(side); p->drawPolygon(rt);
-    double sx=fr.left()+fr.width()*0.35, sw=fr.width()*0.30;
-    double sy=fr.top()+fr.height()*0.25, sh=fr.height()*0.50;
-    p->setPen(Qt::NoPen); p->setBrush(CBStyle::BG); p->drawRect(QRectF(sx,sy,sw,sh));
-    p->setPen(QPen(sel?CBStyle::ACCENT:CBStyle::ORANGE,1.4)); p->setBrush(Qt::NoBrush);
-    p->drawRect(QRectF(sx,sy,sw,sh));
-    p->setPen(QPen(CBStyle::ACCENT,1));
-    QFont f("Courier",7); f.setBold(true); p->setFont(f);
-    p->drawText(QPointF(ox+3,oy+d+fr.height()*0.6),"H");
-    p->restore();
-}
+    p->setRenderHint(QPainter::Antialiasing, true);
 
-static void drawCavity(QPainter* p, QRectF r, bool sel=false, const QString& lbl="CAV")
-{
-    p->save(); p->setRenderHint(QPainter::Antialiasing);
-    QColor tc=sel?QColor(185,230,200):QColor(205,238,215);
-    QColor fc=sel?QColor(155,210,175):QColor(175,220,190);
-    QColor sc=sel?QColor(125,190,150):QColor(145,200,165);
-    QPen pen(sel?CBStyle::GREEN:CBStyle::BORDER,sel?1.5:0.8);
-    double w=r.width(),h=r.height(),ox=r.x(),oy=r.y(),dx=w*0.18,dy=h*0.22;
-    QPolygonF tp; tp<<QPointF(ox,oy+dy)<<QPointF(ox+dx,oy)<<QPointF(ox+w,oy)<<QPointF(ox+w-dx,oy+dy);
-    p->setPen(pen); p->setBrush(tc); p->drawPolygon(tp);
-    QRectF fr(ox,oy+dy,w-dx,h-dy); p->setBrush(fc); p->drawRect(fr);
-    QPolygonF sd; sd<<QPointF(ox+w-dx,oy+dy)<<QPointF(ox+w,oy)<<QPointF(ox+w,oy+h-dy)<<QPointF(ox+w-dx,oy+h);
-    p->setBrush(sc); p->drawPolygon(sd);
-    double ay=oy+dy+(h-dy)*0.55, ax0=ox+8, ax1=ox+w-dx-12;
-    p->setPen(QPen(CBStyle::GREEN,1.5)); p->drawLine(QPointF(ax0,ay),QPointF(ax1,ay));
-    QPolygonF arr; arr<<QPointF(ax1,ay-4)<<QPointF(ax1+8,ay)<<QPointF(ax1,ay+4);
-    p->setBrush(CBStyle::GREEN); p->setPen(Qt::NoPen); p->drawPolygon(arr);
-    p->setPen(QPen(CBStyle::GREEN,1)); QFont f("Courier",7); p->setFont(f);
-    p->drawText(QPointF(ox+6,ay-5),lbl);
-    p->restore();
-}
+    const QPointF c = r.center();
+    const qreal   R = qMin(r.width(), r.height()) * 0.40;
 
-static void drawSource(QPainter* p, QRectF r, bool sel=false)
-{
-    p->save(); p->setRenderHint(QPainter::Antialiasing);
-    QPointF c=r.center(); double rad=qMin(r.width(),r.height())*0.38;
-    for(int i=3;i>=1;--i){
-        p->setPen(QPen(CBStyle::ORANGE.lighter(100+i*20),0.8,Qt::DashLine));
-        p->setBrush(Qt::NoBrush); p->drawEllipse(c,rad*i/3.0,rad*i/3.0);
-    }
-    p->setBrush(CBStyle::ORANGE); p->setPen(Qt::NoPen); p->drawEllipse(c,rad*0.25,rad*0.25);
-    for(int deg=0;deg<360;deg+=60){
-        double a0=deg*M_PI/180.0;
-        p->setPen(QPen(CBStyle::ORANGE,1,Qt::SolidLine,Qt::RoundCap));
-        p->drawLine(QPointF(c.x()+rad*0.9*cos(a0),c.y()+rad*0.9*sin(a0)),
-                    QPointF(c.x()+rad*1.4*cos(a0),c.y()+rad*1.4*sin(a0)));
-    }
-    p->setPen(QPen(CBStyle::ORANGE,1)); QFont f("Courier",9); f.setBold(true); p->setFont(f);
-    p->drawText(QRectF(c.x()-5,c.y()-7,12,14),Qt::AlignCenter,"E");
-    p->restore();
-}
-
-static void drawObservation(QPainter* p, QRectF r, bool sel=false)
-{
-    p->save(); p->setRenderHint(QPainter::Antialiasing);
-    QPointF c=r.center(); double rad=qMin(r.width(),r.height())*0.36;
+    // Outer circle
     p->setBrush(Qt::NoBrush);
-    for(int i=1;i<=2;++i){
-        p->setPen(QPen(CBStyle::RED.lighter(100+i*30),sel?1.2:0.8));
-        p->drawEllipse(c,rad*i/2.0,rad*i/2.0);
+    p->setPen(QPen(sel ? CBStyle::ORANGE : CBStyle::TEXT, strokeWidth(sel)));
+    p->drawEllipse(c, R, R);
+
+    // Sine wave inside (one full cycle)
+    QPainterPath wave;
+    const qreal span = R * 1.4;
+    const int   N    = 40;
+    for (int i = 0; i <= N; ++i) {
+        const qreal t  = qreal(i) / qreal(N);
+        const qreal wx = c.x() - span / 2.0 + t * span;
+        const qreal wy = c.y() + std::sin(t * 2.0 * M_PI) * R * 0.35;
+        if (i == 0) wave.moveTo(wx, wy);
+        else        wave.lineTo(wx, wy);
     }
-    p->setPen(QPen(CBStyle::RED,0.8,Qt::SolidLine,Qt::RoundCap));
-    p->drawLine(QPointF(c.x()-rad*1.1,c.y()),QPointF(c.x()+rad*1.1,c.y()));
-    p->drawLine(QPointF(c.x(),c.y()-rad*1.1),QPointF(c.x(),c.y()+rad*1.1));
-    p->setBrush(CBStyle::RED); p->setPen(Qt::NoPen); p->drawEllipse(c,3.5,3.5);
-    p->setPen(QPen(CBStyle::RED,1)); QFont f("Courier",7); p->setFont(f);
-    p->drawText(QPointF(c.x()+rad*0.4,c.y()-rad*0.3),"Obs");
+    p->setPen(QPen(CBStyle::TEXT, 1.0));
+    p->drawPath(wave);
+
+    drawTypeChip(p, r, CBStyle::ORANGE);
+    p->restore();
+}
+
+// ── Aperture — vertical front wall with a horizontal slot opening ───────
+// Optional `withCover` parameter draws the small cover piece above the
+// slot (used for the AP+Cover variant). When true, the type chip is still
+// drawn — the cover is the silhouette differentiator, not a colour change.
+static void drawAperture(QPainter* p, QRectF r, bool sel = false,
+                         bool withCover = false)
+{
+    p->save();
+    p->setRenderHint(QPainter::Antialiasing, true);
+
+    const qreal pad = 4.0;
+    const QRectF wall(r.x() + r.width()  * 0.20,
+                      r.y() + pad,
+                      r.width()  * 0.60,
+                      r.height() - 2.0 * pad);
+
+    // Wall outline
+    p->setBrush(Qt::NoBrush);
+    p->setPen(QPen(sel ? CBStyle::ACCENT : CBStyle::TEXT, strokeWidth(sel)));
+    p->drawRect(wall);
+
+    // Horizontal slot at mid-height
+    const qreal sw = wall.width()  * 0.55;
+    const qreal sh = qMax<qreal>(2.0, wall.height() * 0.10);
+    const QRectF slot(wall.left() + (wall.width() - sw) / 2.0,
+                      wall.center().y() - sh / 2.0,
+                      sw, sh);
+    p->setBrush(CBStyle::BG);
+    p->setPen(QPen(CBStyle::TEXT, 1.0));
+    p->drawRect(slot);
+
+    // Cover piece (AP+Cover variant only)
+    if (withCover) {
+        const qreal cw = sw + 4.0;
+        const qreal ch = qMax<qreal>(2.0, wall.height() * 0.08);
+        const QRectF cover(wall.left() + (wall.width() - cw) / 2.0,
+                           slot.top() - ch - 1.0,
+                           cw, ch);
+        p->setBrush(CBStyle::BG);
+        p->setPen(QPen(CBStyle::TEXT, 1.0));
+        p->drawRect(cover);
+    }
+
+    drawTypeChip(p, r, CBStyle::ACCENT);
+    p->restore();
+}
+
+// ── Cavity — waveguide rectangle with internal propagation arrow.
+// Optional `dielectric` parameter adds diagonal hatching in the lower
+// half to indicate dielectric fill (Diel.Cav variant).
+static void drawCavity(QPainter* p, QRectF r, bool sel = false,
+                       const QString& /*lbl*/ = QString(),
+                       bool dielectric = false)
+{
+    p->save();
+    p->setRenderHint(QPainter::Antialiasing, true);
+
+    const qreal pad = 4.0;
+    const QRectF box(r.x() + pad,
+                     r.y() + pad + 4.0,
+                     r.width()  - 2.0 * pad,
+                     r.height() - 2.0 * pad - 4.0);
+
+    // Waveguide outline
+    p->setBrush(Qt::NoBrush);
+    p->setPen(QPen(sel ? CBStyle::GREEN : CBStyle::TEXT, strokeWidth(sel)));
+    p->drawRect(box);
+
+    // Diagonal hatching in lower half for the dielectric variant.
+    if (dielectric) {
+        p->setClipRect(QRectF(box.left() + 1.0,
+                              box.top() + box.height() * 0.5 + 1.0,
+                              box.width() - 2.0,
+                              box.height() * 0.5 - 2.0));
+        p->setPen(QPen(CBStyle::TEXT, 1.0));
+        const qreal step = 4.0;
+        // 45-degree lines covering the clipped region.
+        for (qreal x = box.left() - box.height();
+             x < box.right();
+             x += step) {
+            p->drawLine(QPointF(x,                box.top() + box.height()),
+                        QPointF(x + box.height(), box.top()));
+        }
+        p->setClipping(false);
+    }
+
+    // Horizontal propagation arrow at upper-third height
+    const qreal ay  = box.top() + box.height() * 0.30;
+    const qreal ax0 = box.left() + 4.0;
+    const qreal ax1 = box.right() - 8.0;
+    p->setPen(QPen(CBStyle::TEXT, 1.0));
+    p->drawLine(QPointF(ax0, ay), QPointF(ax1, ay));
+    QPolygonF head;
+    head << QPointF(ax1, ay)
+         << QPointF(ax1 - 4.0, ay - 3.0)
+         << QPointF(ax1 - 4.0, ay + 3.0);
+    p->setBrush(CBStyle::TEXT);
+    p->setPen(Qt::NoPen);
+    p->drawPolygon(head);
+
+    drawTypeChip(p, r, CBStyle::GREEN);
+    p->restore();
+}
+
+// ── Observation point — circle with cross-hair (probe glyph) ────────────
+static void drawObservation(QPainter* p, QRectF r, bool sel = false)
+{
+    p->save();
+    p->setRenderHint(QPainter::Antialiasing, true);
+
+    const QPointF c = r.center();
+    const qreal   R = qMin(r.width(), r.height()) * 0.32;
+
+    p->setBrush(Qt::NoBrush);
+    p->setPen(QPen(sel ? CBStyle::RED : CBStyle::TEXT, strokeWidth(sel)));
+    p->drawEllipse(c, R, R);
+
+    p->setPen(QPen(CBStyle::TEXT, 1.0));
+    p->drawLine(QPointF(c.x() - R * 0.9, c.y()),
+                QPointF(c.x() + R * 0.9, c.y()));
+    p->drawLine(QPointF(c.x(), c.y() - R * 0.9),
+                QPointF(c.x(), c.y() + R * 0.9));
+
+    // Centre dot in accent colour — ties the probe to the Obs.Pt type
+    p->setPen(Qt::NoPen);
+    p->setBrush(CBStyle::RED);
+    p->drawEllipse(c, 2.0, 2.0);
+
+    drawTypeChip(p, r, CBStyle::RED);
     p->restore();
 }
 
 } // namespace ElementIcon
 
 // ============================================================
-//  PaletteButton — draggable toolbar tile
+//  PaletteButton — full-width draggable left-panel tile
+//
+//  [T1.2-C] Redesigned for Task 1.2.
+//  Old: 76×80 vertical tile (top toolbar)
+//  New: full-width horizontal QPushButton subclass with a
+//       16×16 painted icon on the left and a text label.
+//
+//  Drag behaviour is unchanged: a left-button press initiates
+//  a QDrag whose mime payload is the integer ElementType.
+//  The drop target (AssemblyCanvas) reads it back exactly as
+//  before, so no canvas-side code needs to change.
 // ============================================================
-class PaletteButton : public QWidget {
+class PaletteButton : public QPushButton {
     Q_OBJECT
 public:
-    ElementType type; QString typeName; QColor accent;
+    ElementType type;
+    QString     typeName;
+    QColor      accent;
+
     PaletteButton(ElementType t, const QString& n, const QColor& c, QWidget* p=nullptr)
-        : QWidget(p), type(t), typeName(n), accent(c)
-    { setFixedSize(76,80); setToolTip(QString("Drag %1 onto canvas").arg(n)); setCursor(Qt::OpenHandCursor); }
+        : QPushButton(p), type(t), typeName(n), accent(c)
+    {
+        setText("  " + n);                           // leading space gives breathing room from the icon
+        setIcon(QIcon(makeIconPixmap(t)));
+        setIconSize(QSize(16, 16));
+        setMinimumHeight(30);
+        setMaximumHeight(30);
+        setCursor(Qt::OpenHandCursor);
+        setToolTip(QString("Drag %1 onto canvas").arg(n));
+        setStyleSheet(EMStyle::elementButtonQSS(c));
+        // Buttons must not steal focus from the canvas / property editor
+        // when the user clicks them — they only initiate drag.
+        setFocusPolicy(Qt::NoFocus);
+    }
+
 protected:
-    void paintEvent(QPaintEvent*) override {
-        QPainter p(this); p.setRenderHint(QPainter::Antialiasing);
-        bool hov=underMouse();
-        p.setBrush(hov?CBStyle::SURFACE2:CBStyle::SURFACE);
-        p.setPen(QPen(hov?accent:CBStyle::BORDER,hov?1.5:1.0));
-        p.drawRoundedRect(rect().adjusted(1,1,-1,-1),6,6);
-        QRectF ic(6,4,64,56);
-        switch(type){
-        case ElementType::Source:            ElementIcon::drawSource(&p,ic); break;
-        case ElementType::Aperture:
-        case ElementType::ApertureWithCover: ElementIcon::drawAperture(&p,ic); break;
-        case ElementType::EmptyCavity:
-        case ElementType::DielectricCavity:  ElementIcon::drawCavity(&p,ic); break;
-        case ElementType::Load:              ElementIcon::drawObservation(&p,ic); break;
-        }
-        p.setPen(accent); QFont f("Courier New",7); p.setFont(f);
-        p.drawText(QRect(0,62,width(),14),Qt::AlignCenter,typeName.toUpper());
-    }
     void mousePressEvent(QMouseEvent* ev) override {
-        if(ev->button()!=Qt::LeftButton) return;
-        QDrag* drag=new QDrag(this); QMimeData* mime=new QMimeData;
-        mime->setText(QString::number((int)type)); drag->setMimeData(mime);
-        QPixmap pm(size()); pm.fill(Qt::transparent); render(&pm);
-        drag->setPixmap(pm); drag->setHotSpot(ev->pos()); drag->exec(Qt::CopyAction);
+        if (ev->button() != Qt::LeftButton) {
+            QPushButton::mousePressEvent(ev);
+            return;
+        }
+        // Initiate drag rather than emit clicked(); the canvas listens for
+        // the drop event and constructs the CanvasElement there.
+        QDrag* drag = new QDrag(this);
+        QMimeData* mime = new QMimeData;
+        mime->setText(QString::number(static_cast<int>(type)));
+        drag->setMimeData(mime);
+
+        // Drag preview pixmap: render the button at its current size so the
+        // user gets a visual confirmation of what is being dragged.
+        QPixmap pm(size());
+        pm.fill(Qt::transparent);
+        render(&pm);
+        drag->setPixmap(pm);
+        drag->setHotSpot(ev->pos());
+        drag->exec(Qt::CopyAction);
     }
-    void enterEvent(QEnterEvent*) override { update(); }
-    void leaveEvent(QEvent*)      override { update(); }
+
+private:
+    // Render the element-type symbol (Source sine-wave / Aperture wall /
+    // AP+Cover wall+lid / Cavity box / Diel.Cav box+hatching / Obs.Pt
+    // probe) into a 16×16 transparent pixmap by routing to the existing
+    // ElementIcon::draw* helpers via the EMStyle::renderIcon16 adapter.
+    //
+    // drawAperture and drawCavity carry a fourth boolean argument
+    // (withCover, dielectric) to differentiate variants. We wrap them in
+    // lambdas with the variant flag bound at the call site so the caller
+    // sees a clean 3-argument IconPainter signature.
+    static QPixmap makeIconPixmap(ElementType t) {
+        switch (t) {
+        case ElementType::Source:
+            return EMStyle::renderIcon16(&ElementIcon::drawSource);
+        case ElementType::Aperture:
+            return EMStyle::renderIcon16(
+                [](QPainter* p, QRectF r, bool s) {
+                    ElementIcon::drawAperture(p, r, s, /*withCover*/ false);
+                });
+        case ElementType::ApertureWithCover:
+            return EMStyle::renderIcon16(
+                [](QPainter* p, QRectF r, bool s) {
+                    ElementIcon::drawAperture(p, r, s, /*withCover*/ true);
+                });
+        case ElementType::EmptyCavity:
+            return EMStyle::renderIcon16(
+                [](QPainter* p, QRectF r, bool s) {
+                    ElementIcon::drawCavity(p, r, s, QString(), /*dielectric*/ false);
+                });
+        case ElementType::DielectricCavity:
+            return EMStyle::renderIcon16(
+                [](QPainter* p, QRectF r, bool s) {
+                    ElementIcon::drawCavity(p, r, s, QString(), /*dielectric*/ true);
+                });
+        case ElementType::Load:
+            return EMStyle::renderIcon16(&ElementIcon::drawObservation);
+        }
+        return QPixmap();
+    }
 };
 
 // ============================================================
@@ -312,28 +508,62 @@ public:
     QRectF boundingRect() const override { return {0,0,W,H+20}; }
 
     void paint(QPainter* p, const QStyleOptionGraphicsItem*, QWidget*) override {
-        bool sel=isSelected(); QColor ac=accentColor();
-        if(sel){
+        p->setRenderHint(QPainter::Antialiasing, true);
+        const bool   sel = isSelected();
+        const QColor ac  = accentColor();
+        const bool   hov = isUnderMouse();
+
+        // ── Body chrome ─────────────────────────────────────────────────
+        // Three states, no gradients, no shadows:
+        //   idle      — neutral border, transparent body
+        //   hover     — accent-tinted border (1.2 px), transparent body
+        //   selected  — accent border (1.6 px) + faint accent wash (alpha 30)
+        if (sel) {
+            // Selection chrome: tinted body fill + bold accent border.
+            // Drawn slightly outside the icon rect so the silhouette inside
+            // never collides with the border.
             p->setPen(Qt::NoPen);
-            p->setBrush(QColor(ac.red(),ac.green(),ac.blue(),35));
-            p->drawRoundedRect(QRectF(-2,-2,W+4,H+4),6,6);
-            p->setPen(QPen(ac,2)); p->setBrush(Qt::NoBrush);
-            p->drawRoundedRect(QRectF(-2,-2,W+4,H+4),6,6);
+            p->setBrush(QColor(ac.red(), ac.green(), ac.blue(), 30));
+            p->drawRoundedRect(QRectF(-2, -2, W + 4, H + 4), 5.0, 5.0);
+            p->setBrush(Qt::NoBrush);
+            p->setPen(QPen(ac, 1.6));
+            p->drawRoundedRect(QRectF(-2, -2, W + 4, H + 4), 5.0, 5.0);
         } else {
-            p->setPen(QPen(CBStyle::BORDER,0.8)); p->setBrush(QColor(255,255,255,180));
-            p->drawRoundedRect(QRectF(0,0,W,H),4,4);
+            p->setBrush(Qt::NoBrush);
+            p->setPen(QPen(hov ? ac : CBStyle::BORDER, hov ? 1.2 : 0.8));
+            p->drawRoundedRect(QRectF(0, 0, W, H), 4.0, 4.0);
         }
-        QRectF ic(4,4,W-8,H-8);
-        switch(params.type){
-        case ElementType::Source:            ElementIcon::drawSource(p,ic,sel); break;
+
+        // ── Element silhouette ─────────────────────────────────────────
+        const QRectF ic(4, 4, W - 8, H - 8);
+        switch (params.type) {
+        case ElementType::Source:
+            ElementIcon::drawSource(p, ic, sel);
+            break;
         case ElementType::Aperture:
-        case ElementType::ApertureWithCover: ElementIcon::drawAperture(p,ic,sel); break;
+            ElementIcon::drawAperture(p, ic, sel, /*withCover*/ false);
+            break;
+        case ElementType::ApertureWithCover:
+            ElementIcon::drawAperture(p, ic, sel, /*withCover*/ true);
+            break;
         case ElementType::EmptyCavity:
-        case ElementType::DielectricCavity:  ElementIcon::drawCavity(p,ic,sel,params.label.left(4)); break;
-        case ElementType::Load:              ElementIcon::drawObservation(p,ic,sel); break;
+            ElementIcon::drawCavity(p, ic, sel, QString(), /*dielectric*/ false);
+            break;
+        case ElementType::DielectricCavity:
+            ElementIcon::drawCavity(p, ic, sel, QString(), /*dielectric*/ true);
+            break;
+        case ElementType::Load:
+            ElementIcon::drawObservation(p, ic, sel);
+            break;
         }
-        p->setPen(QPen(ac,1)); QFont f("Courier New",7); p->setFont(f);
-        p->drawText(QRectF(0,H+2,W,16),Qt::AlignCenter,params.label);
+
+        // ── Label underneath ───────────────────────────────────────────
+        // Label always uses the type accent colour so it doubles as a
+        // colour key when the icon is far from the eye.
+        QFont f("Courier New", 7);
+        p->setFont(f);
+        p->setPen(QPen(ac, 1.0));
+        p->drawText(QRectF(0, H + 2, W, 16), Qt::AlignCenter, params.label);
     }
 
     QColor accentColor() const {
@@ -384,15 +614,70 @@ public:
                 qAbs(a.y()-b.y())+CanvasElement::H+20 };
     }
     void paint(QPainter* p, const QStyleOptionGraphicsItem*, QWidget*) override {
-        QPointF a=src->pos()+QPointF(CanvasElement::W, CanvasElement::H/2.0);
-        QPointF b=dst->pos()+QPointF(0,               CanvasElement::H/2.0);
-        double mx=(a.x()+b.x())/2.0;
-        QPainterPath path; path.moveTo(a);
-        path.cubicTo({mx,a.y()},{mx,b.y()},b);
-        p->setPen(QPen(CBStyle::ACCENT,1.5,Qt::DashLine)); p->setBrush(Qt::NoBrush);
+        p->setRenderHint(QPainter::Antialiasing, true);
+
+        // Anchor points: right edge of source, left edge of destination,
+        // both at vertical centre of their elements.
+        const QPointF a = src->pos() + QPointF(CanvasElement::W, CanvasElement::H / 2.0);
+        const QPointF b = dst->pos() + QPointF(0.0,               CanvasElement::H / 2.0);
+
+        // Reserve a small head zone so the arrowhead does not overlap the
+        // destination's body chrome.
+        constexpr qreal kHead     = 8.0;   // head length
+        constexpr qreal kHeadHalf = 4.0;   // half-width of triangle base
+        const QPointF tip  = b;
+        const QPointF tail = (b.x() > a.x())
+                                 ? QPointF(b.x() - kHead, b.y())
+                                 : QPointF(b.x() + kHead, b.y());
+
+        // Path: straight line if endpoints are vertically aligned, otherwise
+        // a smooth horizontal-tangent cubic so the line enters/leaves both
+        // elements perpendicular to their right/left edges.
+        QPainterPath path;
+        path.moveTo(a);
+        if (qAbs(a.y() - tail.y()) < 1.5) {
+            path.lineTo(tail);
+        } else {
+            const qreal mx = (a.x() + tail.x()) * 0.5;
+            path.cubicTo(QPointF(mx, a.y()),
+                         QPointF(mx, tail.y()),
+                         tail);
+        }
+
+        // Solid muted line — single neutral colour regardless of selection.
+        // Connections express topology, not selection state; tying the wire
+        // colour to selection would make the canvas flash visually busy when
+        // multiple elements are selected.
+        p->setBrush(Qt::NoBrush);
+        p->setPen(QPen(CBStyle::TEXT_MUTED, 1.5, Qt::SolidLine,
+                       Qt::RoundCap, Qt::RoundJoin));
         p->drawPath(path);
-        p->setBrush(CBStyle::ACCENT); p->setPen(Qt::NoPen);
-        p->drawEllipse(a,4,4); p->drawEllipse(b,4,4);
+
+        // Filled triangle arrowhead — direction taken from the tail of the
+        // path so it points correctly whether the path is straight or
+        // curved. We approximate the local angle by sampling the path
+        // slightly before the tail.
+        qreal angle = 0.0;
+        const qreal len = path.length();
+        if (len > 1.0) {
+            const QPointF justBefore =
+                path.pointAtPercent(qMax<qreal>(0.0, (len - 1.0) / len));
+            angle = std::atan2(tail.y() - justBefore.y(),
+                               tail.x() - justBefore.x());
+        } else {
+            angle = std::atan2(tail.y() - a.y(), tail.x() - a.x());
+        }
+        const QPointF baseCentre(tip.x() - kHead * std::cos(angle),
+                                 tip.y() - kHead * std::sin(angle));
+        const QPointF perp(-std::sin(angle) * kHeadHalf,
+                           std::cos(angle) * kHeadHalf);
+        QPolygonF head;
+        head << tip
+             << (baseCentre + perp)
+             << (baseCentre - perp);
+        p->setPen(Qt::NoPen);
+        p->setBrush(CBStyle::TEXT_MUTED);
+        p->drawPolygon(head);
     }
 };
 
@@ -478,8 +763,19 @@ public slots:
             scene()->addItem(w); wires.append(w);
         }
         scene()->update();
+        // [T1.4] Auto-arrange may renumber elements left-to-right.
+        // Emit circuitChanged so the StackLayerPanel rebuilds with the
+        // new ordering. Symmetric with addElement / removeSelected /
+        // clearAll, which all emit circuitChanged on structural change.
+        emit circuitChanged();
     }
 };
+
+// [T1.4-INCLUDE]
+// StackLayerPanel.h depends on CanvasElement, ElementType, ElementParams,
+// and ElementIcon — all declared above. It MUST be included after those
+// declarations are visible. See StackLayerPanel.h for the matching guard.
+#include "StackLayerPanel.h"
 
 // ============================================================
 //  CLocaleDoubleSpinBox
@@ -504,29 +800,23 @@ public:
     explicit CLocaleDoubleSpinBox(QWidget* parent = nullptr)
         : QDoubleSpinBox(parent)
     {
-        // Belt-and-suspenders: also set the locale on the object
         setLocale(QLocale::c());
     }
 
-    // Override validate: replace comma with period so that users can
-    // type either separator. Base class then validates the corrected string.
     QValidator::State validate(QString& input, int& pos) const override {
-        // Replace any comma (European decimal separator) with period
         input.replace(',', '.');
         return QDoubleSpinBox::validate(input, pos);
     }
 
-    // Override valueFromText: parse using the C locale (always '.')
     double valueFromText(const QString& text) const override {
         QString t = text;
-        t.replace(',', '.');     // accept either separator
-        t.remove(' ');           // strip any thousands separator
+        t.replace(',', '.');
+        t.remove(' ');
         bool ok = false;
         const double v = t.toDouble(&ok);
         return ok ? v : minimum();
     }
 
-    // Override textFromValue: always display with '.' as separator
     QString textFromValue(double value) const override {
         return QLocale::c().toString(value, 'f', decimals());
     }
@@ -534,12 +824,21 @@ public:
 
 // ============================================================
 //  BuilderPropertyPanel — context-sensitive parameter editor
+//
+//  [T1.2-E] All [=] lambdas in addDouble / addInt / addLineEdit
+//  changed to explicit [this, fn] captures (the user-supplied
+//  callback is captured by value, currentElement_ is read via
+//  this).  This eliminates the C++20 implicit-this warning.
 // ============================================================
 class BuilderPropertyPanel : public QWidget {
     Q_OBJECT
 public:
     explicit BuilderPropertyPanel(QWidget* p=nullptr) : QWidget(p) {
-        setMinimumWidth(220); setMaximumWidth(260);
+        // [T1.2-B] Width hints are now advisory: the enclosing splitter
+        // handle lets the user resize the panel freely.  The minimum is
+        // kept so the panel stays usable when collapsed close to the
+        // brand strip.
+        setMinimumWidth(220);
         setStyleSheet(QString("background:rgb(%1,%2,%3);color:rgb(%4,%5,%6);")
                           .arg(CBStyle::SURFACE.red()).arg(CBStyle::SURFACE.green()).arg(CBStyle::SURFACE.blue())
                           .arg(CBStyle::TEXT.red()).arg(CBStyle::TEXT.green()).arg(CBStyle::TEXT.blue()));
@@ -581,13 +880,15 @@ public:
             "     ↓  (series 2→3)\n"
             "  ╚═ Back-wall short\n"
             "     auto-added at node 3\n\n"
-            "  Use ⇌ Arrange after\n"
+            "  Use Arrange after\n"
             "  dropping elements.\n\n"
             "  Click element to\n"
             "  edit its params.",this);
         placeholderLabel_->setStyleSheet(dimLabel()+" font-size:10px;");
         placeholderLabel_->setAlignment(Qt::AlignLeft);
-        l->addWidget(placeholderLabel_); l->addStretch();
+        l->addWidget(placeholderLabel_);
+        // No final stretch: the enclosing left-panel layout owns the stretch
+        // policy now (see CircuitBuilderWindow::buildLeftPanel).
         showPlaceholder(true);
     }
 
@@ -596,43 +897,76 @@ signals:
 
 public slots:
     void showElement(CanvasElement* el) {
+        // [BUGFIX-PARAMS-RESET] Guard the entire form rebuild.
+        // m_loading_ stays true from the moment we change currentElement_
+        // through the construction of every spinbox in the new form.
+        // All spurious valueChanged() emissions caused by widget
+        // construction (setValue with a non-zero default) and widget
+        // destruction (clearForm -> ~QDoubleSpinBox) are observed by the
+        // lambdas which see the flag and return early without writing.
+        m_loading_ = true;
         currentElement_=el; clearForm();
-        if(!el){ showPlaceholder(true); typeLabel_->setText("No element selected"); return; }
+        if(!el){
+            showPlaceholder(true);
+            typeLabel_->setText("No element selected");
+            m_loading_ = false;
+            return;
+        }
         showPlaceholder(false);
         QColor col=el->accentColor();
         typeLabel_->setText(typeToStr(el->params.type));
         typeLabel_->setStyleSheet(QString("font-family:'Courier New';font-size:11px;font-weight:bold;"
                                           "color:rgb(%1,%2,%3);").arg(col.red()).arg(col.green()).arg(col.blue()));
-        addLineEdit("Label:",el->params.label,[=](const QString& v){currentElement_->params.label=v;currentElement_->update();});
+
+        // [T1.2-E] Explicit [this] captures throughout. The fn callbacks
+        // are captured by value (default behaviour for std::function).
+        addLineEdit("Label:", el->params.label,
+                    [this](const QString& v){ currentElement_->params.label = v; currentElement_->update(); });
+
         switch(el->params.type){
         case ElementType::Source:
-            addDouble("E₀ [V/m]:",    el->params.E0,        0.01,1000,0.1,  [=](double v){currentElement_->params.E0=v;});
+            addDouble("E₀ [V/m]:",     el->params.E0,         0.01,  1000,  0.1,
+                      [this](double v){ currentElement_->params.E0 = v; });
             // [FIX-B1] min=0.0001 GHz = 100 kHz — allows Phase A's 1 MHz start
-            addDouble("f start [GHz]:",el->params.freqStart, 0.0001,100, 0.001,  [=](double v){currentElement_->params.freqStart=v;});
-            addDouble("f end [GHz]:",  el->params.freqEnd,   0.1,100, 1.0,  [=](double v){currentElement_->params.freqEnd=v;});
-            addInt   ("Points:",       el->params.freqPoints,10, 2000,50,    [=](int v)   {currentElement_->params.freqPoints=v;});
+            addDouble("f start [GHz]:", el->params.freqStart, 0.0001, 100, 0.001,
+                      [this](double v){ currentElement_->params.freqStart = v; });
+            addDouble("f end [GHz]:",  el->params.freqEnd,    0.1,    100, 1.0,
+                      [this](double v){ currentElement_->params.freqEnd = v; });
+            addInt   ("Points:",       el->params.freqPoints, 10,    2000, 50,
+                   [this](int v)   { currentElement_->params.freqPoints = v; });
             addSep("Cross-section (shared by all):");
-            addDouble("a [m]:",       el->params.a,      0.001,1.0,0.005,   [=](double v){currentElement_->params.a=v;});
-            addDouble("b [m]:",       el->params.b_h,    0.001,1.0,0.005,   [=](double v){currentElement_->params.b_h=v;});
-            // step=0.0001 m (0.1mm) gives fine control; min=0.0001 m (0.1mm)
-            addDouble("t_wall [m]:",  el->params.t_wall, 0.0001,0.1,0.0001, [=](double v){currentElement_->params.t_wall=v;});
+            addDouble("a [m]:",        el->params.a,          0.001,  1.0, 0.005,
+                      [this](double v){ currentElement_->params.a = v; });
+            addDouble("b [m]:",        el->params.b_h,        0.001,  1.0, 0.005,
+                      [this](double v){ currentElement_->params.b_h = v; });
+            addDouble("t_wall [m]:",   el->params.t_wall,     0.0001, 0.1, 0.0001,
+                      [this](double v){ currentElement_->params.t_wall = v; });
             break;
         case ElementType::Aperture:
-            addDouble("l_slot [m]:",el->params.l_slot,0.001,1.0,0.002,  [=](double v){currentElement_->params.l_slot=v;});
-            addDouble("w_slot [m]:",el->params.w_slot,0.0001,0.1,0.0005,[=](double v){currentElement_->params.w_slot=v;});
+            addDouble("l_slot [m]:", el->params.l_slot, 0.001,  1.0, 0.002,
+                      [this](double v){ currentElement_->params.l_slot = v; });
+            addDouble("w_slot [m]:", el->params.w_slot, 0.0001, 0.1, 0.0005,
+                      [this](double v){ currentElement_->params.w_slot = v; });
             break;
         case ElementType::ApertureWithCover:
-            addDouble("l_slot [m]:", el->params.l_slot,    0.001,1.0,0.002,   [=](double v){currentElement_->params.l_slot=v;});
-            addDouble("w_slot [m]:", el->params.w_slot,    0.0001,0.1,0.0005, [=](double v){currentElement_->params.w_slot=v;});
-            addDouble("τ gap [m]:",  el->params.tau_cover,0.0001,0.01,0.0001, [=](double v){currentElement_->params.tau_cover=v;});
+            addDouble("l_slot [m]:", el->params.l_slot,    0.001,  1.0,  0.002,
+                      [this](double v){ currentElement_->params.l_slot = v; });
+            addDouble("w_slot [m]:", el->params.w_slot,    0.0001, 0.1,  0.0005,
+                      [this](double v){ currentElement_->params.w_slot = v; });
+            addDouble("τ gap [m]:",  el->params.tau_cover, 0.0001, 0.01, 0.0001,
+                      [this](double v){ currentElement_->params.tau_cover = v; });
             break;
         case ElementType::EmptyCavity:
-            addDouble("L [m]:",el->params.L_cavity,0.001,2.0,0.01,[=](double v){currentElement_->params.L_cavity=v;});
+            addDouble("L [m]:", el->params.L_cavity, 0.001, 2.0, 0.01,
+                      [this](double v){ currentElement_->params.L_cavity = v; });
             break;
         case ElementType::DielectricCavity:
-            addDouble("L [m]:",      el->params.L_cavity,    0.001,2.0,0.01,   [=](double v){currentElement_->params.L_cavity=v;});
-            addDouble("h_diel [m]:", el->params.h_dielectric,0.0001,1.0,0.001, [=](double v){currentElement_->params.h_dielectric=v;});
-            addDouble("ε_r:",        el->params.eps_r,        1.0,100.0,0.5,   [=](double v){currentElement_->params.eps_r=v;});
+            addDouble("L [m]:",      el->params.L_cavity,     0.001,  2.0,   0.01,
+                      [this](double v){ currentElement_->params.L_cavity = v; });
+            addDouble("h_diel [m]:", el->params.h_dielectric, 0.0001, 1.0,   0.001,
+                      [this](double v){ currentElement_->params.h_dielectric = v; });
+            addDouble("ε_r:",        el->params.eps_r,         1.0,   100.0, 0.5,
+                      [this](double v){ currentElement_->params.eps_r = v; });
             break;
         case ElementType::Load:
             addInfo("SHUNT observation tap.\n"
@@ -650,18 +984,35 @@ public slots:
                     "Back-wall short added\n"
                     "automatically.");
             // [FIX-D4] max=1e10 covers the 1e9 default; step=1e6 for navigation
-            addDouble("Z_L real [Ω]:",el->params.ZL_real, 0.001,1.0e10,1.0e6,
-                      [=](double v){currentElement_->params.ZL_real=v;});
-            addDouble("Z_L imag [Ω]:",el->params.ZL_imag,-1.0e9,1.0e9,1.0e3,
-                      [=](double v){currentElement_->params.ZL_imag=v;});
+            addDouble("Z_L real [Ω]:", el->params.ZL_real,  0.001,    1.0e10, 1.0e6,
+                      [this](double v){ currentElement_->params.ZL_real = v; });
+            addDouble("Z_L imag [Ω]:", el->params.ZL_imag, -1.0e9,    1.0e9,  1.0e3,
+                      [this](double v){ currentElement_->params.ZL_imag = v; });
             break;
         }
+
+        // [BUGFIX-PARAMS-RESET] Form is fully built; allow user edits to
+        // flow through to currentElement_->params from this point on.
+        m_loading_ = false;
     }
 
 private:
     QLabel* headerLabel_; QLabel* typeLabel_; QLabel* placeholderLabel_;
     QScrollArea* scrollArea_; QWidget* formWidget_; QFormLayout* formLayout_;
     CanvasElement* currentElement_{nullptr};
+
+    // [BUGFIX-PARAMS-RESET]
+    // Guard flag set to true while showElement() is rebuilding the form.
+    // Each user-callback lambda checks this flag and early-returns if it
+    // is true. Without this guard, the spurious valueChanged() emissions
+    // that Qt fires during widget construction (setValue() with a
+    // non-default value) and during widget destruction (clearForm() ->
+    // removeRow() -> ~QDoubleSpinBox()) reach the lambdas and write into
+    // `currentElement_->params`, which by step 1 of showElement() already
+    // points at the NEXT element being shown. The result is that every
+    // time the user clicks a different element, that element's params
+    // are clobbered with stale values from the previously-displayed form.
+    bool m_loading_{false};
 
     QString dimLabel()   const {
         return QString("color:rgb(%1,%2,%3);font-family:'Courier New';font-size:10px;letter-spacing:1px;")
@@ -681,7 +1032,27 @@ private:
         case ElementType::Load:              return "OBS. POINT (shunt)";
         } return "ELEMENT";
     }
-    void clearForm(){ while(formLayout_->rowCount()>0) formLayout_->removeRow(0); }
+    void clearForm(){
+        // [BUGFIX-PARAMS-RESET]
+        // Disconnect all signals from each widget BEFORE removing it.
+        // QFormLayout::removeRow() calls deleteLater() on the contained
+        // widgets, and during their destruction Qt fires one final
+        // valueChanged() / textChanged() that would otherwise reach the
+        // lambdas connected in addDouble() / addInt() / addLineEdit().
+        // Although the m_loading_ guard already protects against a stale
+        // write, disconnecting here is belt-and-braces and also avoids
+        // the cost of dispatching those signals at all.
+        for(int row = 0; row < formLayout_->rowCount(); ++row){
+            for(int role = 0; role < 2; ++role){
+                if(auto* item = formLayout_->itemAt(row, static_cast<QFormLayout::ItemRole>(role))){
+                    if(QWidget* w = item->widget()){
+                        QObject::disconnect(w, nullptr, this, nullptr);
+                    }
+                }
+            }
+        }
+        while(formLayout_->rowCount() > 0) formLayout_->removeRow(0);
+    }
     void showPlaceholder(bool s){ scrollArea_->setVisible(!s); placeholderLabel_->setVisible(s); }
 
     QString spinSS(QColor col) {
@@ -700,29 +1071,92 @@ private:
         return QString("color:rgb(%1,%2,%3);font-family:'Courier New';font-size:10px;")
         .arg(CBStyle::TEXT_MUTED.red()).arg(CBStyle::TEXT_MUTED.green()).arg(CBStyle::TEXT_MUTED.blue());
     }
-    void addDouble(const QString& l, double v, double mn, double mx, double step, std::function<void(double)> fn) {
-        // [FIX-B1] CLocaleDoubleSpinBox overrides validate()/valueFromText()/textFromValue()
-        // to guarantee '.' decimal separator on all platforms, including Russian/European
-        // Windows where Qt's default validator silently rejects typed '.' values.
+
+    // [T1.2-E] addDouble / addInt / addLineEdit:
+    // captures changed from [=] to explicit [this, fn] to satisfy
+    // C++20's "implicit capture of this via [=] is deprecated" warning.
+    //
+    // [BUGFIX-PARAMS-RESET] Each lambda checks m_loading_ and returns
+    // early if the form is still being populated. This blocks the
+    // setValue()-induced valueChanged() emissions during construction
+    // and the ~QDoubleSpinBox()-induced final emission during destruction
+    // from writing to currentElement_->params (which by then points at
+    // the next element, not the one whose data is being loaded).
+    //
+    // [BUGFIX-DECIMALS-ROUNDING] CRITICAL ORDER OF setup() CALLS:
+    //   1. setDecimals(6)  ← MUST be first
+    //   2. setRange(mn, mx)
+    //   3. setValue(v)
+    //   4. setSingleStep(step)
+    //
+    // QDoubleSpinBox::setValue() rounds the supplied value to the precision
+    // currently set by decimals(). On a fresh QDoubleSpinBox, decimals()
+    // defaults to 2. Calling setValue(0.005) before setDecimals(6) silently
+    // rounds 0.005 → 0.01 (the nearest two-decimal value). Subsequently
+    // calling setDecimals(6) does NOT recover the original precision —
+    // it only re-formats the already-rounded internal value as "0.010000".
+    //
+    // Symptom: any user-entered value with more than two decimals of
+    // precision (e.g. typing 0.005, 0.003, 0.0015) silently mutates to
+    // its 2-decimal rounded form the next time the property panel is
+    // rebuilt for that element.
+    //
+    // The diagnostic log made this unambiguous:
+    //   addDouble incoming v=0.005, min=0.001, max=2, step=0.01
+    //   after setValue+setDecimals: spinbox.value()=0.01 text="0.010000"
+    //
+    // Fix: call setDecimals(6) BEFORE setValue() so the value is rounded
+    // to 6 decimals (i.e., not rounded at all for our use case).
+    void addDouble(const QString& l, double v, double mn, double mx, double step,
+                   std::function<void(double)> fn)
+    {
         auto* s = new CLocaleDoubleSpinBox(formWidget_);
-        s->setRange(mn,mx); s->setValue(v); s->setSingleStep(step); s->setDecimals(6);
-        QColor c=currentElement_?currentElement_->accentColor():CBStyle::ACCENT; s->setStyleSheet(spinSS(c));
-        connect(s,QOverload<double>::of(&QDoubleSpinBox::valueChanged),this,[=](double val){fn(val);emit paramsChanged(currentElement_);});
-        auto* ll=new QLabel(l,formWidget_); ll->setStyleSheet(lblSS()); formLayout_->addRow(ll,s);
+        s->setDecimals(6);                           // [BUGFIX-DECIMALS-ROUNDING] FIRST
+        s->setRange(mn, mx);
+        s->setValue(v);                              // value preserved at 6-decimal precision
+        s->setSingleStep(step);
+        QColor c = currentElement_ ? currentElement_->accentColor() : CBStyle::ACCENT;
+        s->setStyleSheet(spinSS(c));
+        connect(s, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+                [this, fn](double val){
+                    if (m_loading_) return;
+                    fn(val);
+                    emit paramsChanged(currentElement_);
+                });
+        auto* ll = new QLabel(l, formWidget_); ll->setStyleSheet(lblSS());
+        formLayout_->addRow(ll, s);
     }
-    void addInt(const QString& l, int v, int mn, int mx, int step, std::function<void(int)> fn) {
-        auto* s=new QSpinBox(formWidget_);
-        s->setLocale(QLocale::c());   // [FIX-B1] consistent locale
-        s->setRange(mn,mx); s->setValue(v); s->setSingleStep(step);
-        QColor c=currentElement_?currentElement_->accentColor():CBStyle::ACCENT; s->setStyleSheet(spinSS(c));
-        connect(s,QOverload<int>::of(&QSpinBox::valueChanged),this,[=](int val){fn(val);emit paramsChanged(currentElement_);});
-        auto* ll=new QLabel(l,formWidget_); ll->setStyleSheet(lblSS()); formLayout_->addRow(ll,s);
+    void addInt(const QString& l, int v, int mn, int mx, int step,
+                std::function<void(int)> fn)
+    {
+        auto* s = new QSpinBox(formWidget_);
+        s->setLocale(QLocale::c());
+        s->setRange(mn, mx); s->setValue(v); s->setSingleStep(step);
+        QColor c = currentElement_ ? currentElement_->accentColor() : CBStyle::ACCENT;
+        s->setStyleSheet(spinSS(c));
+        connect(s, QOverload<int>::of(&QSpinBox::valueChanged), this,
+                [this, fn](int val){
+                    if (m_loading_) return;
+                    fn(val);
+                    emit paramsChanged(currentElement_);
+                });
+        auto* ll = new QLabel(l, formWidget_); ll->setStyleSheet(lblSS());
+        formLayout_->addRow(ll, s);
     }
-    void addLineEdit(const QString& l, const QString& v, std::function<void(const QString&)> fn) {
-        auto* e=new QLineEdit(formWidget_); e->setText(v);
-        QColor c=currentElement_?currentElement_->accentColor():CBStyle::ACCENT; e->setStyleSheet(spinSS(c));
-        connect(e,&QLineEdit::textChanged,this,[=](const QString& val){fn(val);emit paramsChanged(currentElement_);});
-        auto* ll=new QLabel(l,formWidget_); ll->setStyleSheet(lblSS()); formLayout_->addRow(ll,e);
+    void addLineEdit(const QString& l, const QString& v,
+                     std::function<void(const QString&)> fn)
+    {
+        auto* e = new QLineEdit(formWidget_); e->setText(v);
+        QColor c = currentElement_ ? currentElement_->accentColor() : CBStyle::ACCENT;
+        e->setStyleSheet(spinSS(c));
+        connect(e, &QLineEdit::textChanged, this,
+                [this, fn](const QString& val){
+                    if (m_loading_) return;
+                    fn(val);
+                    emit paramsChanged(currentElement_);
+                });
+        auto* ll = new QLabel(l, formWidget_); ll->setStyleSheet(lblSS());
+        formLayout_->addRow(ll, e);
     }
     void addSep(const QString& title) {
         auto* ll=new QLabel(title,formWidget_);
@@ -759,10 +1193,21 @@ public:
 
 private:
     // ── Widgets ──────────────────────────────────────────────────
-    AssemblyCanvas*       canvas_   {nullptr};
-    BuilderPropertyPanel* propPanel_{nullptr};
-    QCustomPlot*          m_plot    {nullptr};
-    QLabel*               statusLbl_{nullptr};
+    AssemblyCanvas*       canvas_     {nullptr};
+    BuilderPropertyPanel* propPanel_  {nullptr};
+    StackLayerPanel*      stackPanel_ {nullptr};   // [T1.4] right-side layer stack
+    QCustomPlot*          m_plot      {nullptr};
+    QLabel*               statusLbl_  {nullptr};
+
+    // [T1.2-B] Action buttons stored as members so connectSignals()
+    // can wire them up. Element palette buttons do not need member
+    // storage — their drag behaviour is fully encapsulated inside
+    // PaletteButton::mousePressEvent().
+    QPushButton* btnArrange_ {nullptr};
+    QPushButton* btnDelete_  {nullptr};
+    QPushButton* btnClear_   {nullptr};
+    QPushButton* btnCompute_ {nullptr};
+    QPushButton* btnExport_  {nullptr};
 
     // ── Computed result store (export + interactive readout) ─────
     QVector<double>          m_freqs;
@@ -786,14 +1231,15 @@ private:
 
     // ============================================================
     //  Style
+    //
+    //  Note: the QToolBar / QStatusBar entries previously in this
+    //  string are kept harmless; the toolbar no longer exists in
+    //  Task 1.2 but the rule is inert when no QToolBar is present.
     // ============================================================
     void applyGlobalStyle() {
         setStyleSheet(QString(R"(
             QMainWindow,QWidget{background:rgb(%1,%2,%3);color:rgb(%4,%5,%6);font-family:'Courier New',monospace;}
-            QToolBar{background:rgb(%7,%8,%9);border-bottom:1px solid rgb(%10,%11,%12);spacing:6px;padding:4px 8px;}
             QStatusBar{background:rgb(%7,%8,%9);border-top:1px solid rgb(%10,%11,%12);color:rgb(%13,%14,%15);font-size:11px;}
-            QPushButton{border-radius:5px;padding:5px 14px;font-family:'Courier New';font-size:11px;}
-            QPushButton:disabled{opacity:0.4;}
             QSplitter::handle{background:rgb(%10,%11,%12);width:1px;height:1px;}
         )")
                           .arg(CBStyle::BG.red())    .arg(CBStyle::BG.green())    .arg(CBStyle::BG.blue())
@@ -804,86 +1250,191 @@ private:
     }
 
     // ============================================================
+    //  buildLeftPanel — [T1.2-B] new helper
+    //
+    //  Composes the full vertical left-side panel:
+    //    1. Brand strip          (relocated from old toolbar)
+    //    2. Property editor      (existing BuilderPropertyPanel)
+    //    3. ELEMENTS section     (6 draggable PaletteButtons)
+    //    4. ACTIONS section      (Arrange, Delete, Clear)
+    //    5. Compute (primary)
+    //    6. Export CSV
+    //
+    //  Each section is separated by a thin divider. The property
+    //  editor expands to fill remaining vertical space; everything
+    //  below it is fixed-size.
+    // ============================================================
+    QWidget* buildLeftPanel() {
+        auto* panel = new QWidget;
+        panel->setObjectName("LeftPanel");
+        panel->setStyleSheet(QString("QWidget#LeftPanel{background:%1;}")
+                                 .arg(EMStyle::rgb(CBStyle::SURFACE)));
+
+        auto* root = new QVBoxLayout(panel);
+        root->setContentsMargins(0, 0, 0, 0);
+        root->setSpacing(0);
+
+        // ── 1. Brand strip ────────────────────────────────────────
+        auto* brand = new QLabel(EMStyle::brandStripText(), panel);
+        brand->setTextFormat(Qt::RichText);
+        brand->setStyleSheet(EMStyle::brandStripQSS());
+        brand->setAlignment(Qt::AlignCenter);
+        root->addWidget(brand);
+
+        // ── 2. Property editor (existing) ─────────────────────────
+        propPanel_ = new BuilderPropertyPanel(panel);
+        // Property editor expands to take remaining vertical room.
+        propPanel_->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+        root->addWidget(propPanel_, /*stretch*/ 1);
+
+        // ── 3. ELEMENTS section ───────────────────────────────────
+        auto* elementsSection = new QWidget(panel);
+        elementsSection->setStyleSheet(QString("background:%1;")
+                                           .arg(EMStyle::rgb(CBStyle::SURFACE)));
+        auto* elementsLayout = new QVBoxLayout(elementsSection);
+        elementsLayout->setContentsMargins(10, 4, 10, 8);
+        elementsLayout->setSpacing(4);
+
+        auto* elementsHeader = new QLabel("ELEMENTS", elementsSection);
+        elementsHeader->setStyleSheet(EMStyle::sectionHeaderQSS());
+        elementsLayout->addWidget(elementsHeader);
+
+        struct PSpec { ElementType t; QString n; QColor c; };
+        const QVector<PSpec> palette = {
+                                        { ElementType::Source,            "Source",   CBStyle::ORANGE },
+                                        { ElementType::Aperture,          "Aperture", CBStyle::ACCENT },
+                                        { ElementType::ApertureWithCover, "AP+Cover", CBStyle::ACCENT },
+                                        { ElementType::EmptyCavity,       "Cavity",   CBStyle::GREEN  },
+                                        { ElementType::DielectricCavity,  "Diel.Cav", CBStyle::GREEN  },
+                                        { ElementType::Load,              "Obs.Pt",   CBStyle::RED    },
+                                        };
+        for (const auto& s : palette) {
+            auto* btn = new PaletteButton(s.t, s.n, s.c, elementsSection);
+            elementsLayout->addWidget(btn);
+        }
+        root->addWidget(elementsSection);
+
+        // ── 4. ACTIONS section ────────────────────────────────────
+        auto* actionsSection = new QWidget(panel);
+        actionsSection->setStyleSheet(QString("background:%1;")
+                                          .arg(EMStyle::rgb(CBStyle::SURFACE)));
+        auto* actionsLayout = new QVBoxLayout(actionsSection);
+        actionsLayout->setContentsMargins(10, 4, 10, 4);
+        actionsLayout->setSpacing(4);
+
+        auto* actionsHeader = new QLabel("ACTIONS", actionsSection);
+        actionsHeader->setStyleSheet(EMStyle::sectionHeaderQSS());
+        actionsLayout->addWidget(actionsHeader);
+
+        btnArrange_ = makeActionButton("Arrange",    EMStyle::AccentRole::Neutral, actionsSection);
+        btnDelete_  = makeActionButton("Delete",     EMStyle::AccentRole::Danger,  actionsSection);
+        btnClear_   = makeActionButton("Clear",      EMStyle::AccentRole::Source,  actionsSection);
+        actionsLayout->addWidget(btnArrange_);
+        actionsLayout->addWidget(btnDelete_);
+        actionsLayout->addWidget(btnClear_);
+        root->addWidget(actionsSection);
+
+        // ── 5+6. PRIMARY section (Compute + Export) ──────────────
+        auto* primarySection = new QWidget(panel);
+        primarySection->setStyleSheet(QString("background:%1;border-top:1px solid %2;")
+                                          .arg(EMStyle::rgb(CBStyle::SURFACE))
+                                          .arg(EMStyle::rgb(CBStyle::BORDER_LT)));
+        auto* primaryLayout = new QVBoxLayout(primarySection);
+        primaryLayout->setContentsMargins(10, 8, 10, 12);
+        primaryLayout->setSpacing(6);
+
+        btnCompute_ = new QPushButton("COMPUTE", primarySection);
+        btnCompute_->setMinimumHeight(38);
+        btnCompute_->setStyleSheet(EMStyle::primaryButtonQSS(EMStyle::accentFor(EMStyle::AccentRole::Primary)));
+        btnCompute_->setCursor(Qt::PointingHandCursor);
+        primaryLayout->addWidget(btnCompute_);
+
+        btnExport_ = makeActionButton("Export CSV", EMStyle::AccentRole::Neutral, primarySection);
+        primaryLayout->addWidget(btnExport_);
+
+        root->addWidget(primarySection);
+
+        return panel;
+    }
+
+    // Helper: instantiate a non-primary action button with the
+    // standard QSS, height, cursor, and focus policy.
+    QPushButton* makeActionButton(const QString& text,
+                                  EMStyle::AccentRole role,
+                                  QWidget* parent)
+    {
+        auto* btn = new QPushButton(text, parent);
+        btn->setMinimumHeight(28);
+        btn->setStyleSheet(EMStyle::actionButtonQSS(EMStyle::accentFor(role)));
+        btn->setCursor(Qt::PointingHandCursor);
+        return btn;
+    }
+
+    // ============================================================
     //  UI construction
+    //
+    //  [T1.2-A] Toolbar removed. The window's central widget is now
+    //  a horizontal QSplitter whose left side is the assembled left
+    //  panel and whose right side is the (canvas / plot) vertical
+    //  splitter — same as before.
     // ============================================================
     void buildUI() {
-        // ── Toolbar ──────────────────────────────────────────────
-        QToolBar* tb = addToolBar("Palette");
-        tb->setMovable(false); tb->setIconSize({40,40});
-
-        auto* titleLbl = new QLabel(
-            QString("  EM<span style='color:rgb(%1,%2,%3)'>Shield</span>"
-                    "<b style='color:rgb(%4,%5,%6)'>Builder</b>  ")
-                .arg(CBStyle::TEXT_MUTED.red()).arg(CBStyle::TEXT_MUTED.green()).arg(CBStyle::TEXT_MUTED.blue())
-                .arg(CBStyle::ACCENT.red())    .arg(CBStyle::ACCENT.green())    .arg(CBStyle::ACCENT.blue()), tb);
-        titleLbl->setTextFormat(Qt::RichText);
-        titleLbl->setStyleSheet("font-size:13px;letter-spacing:1px;");
-        tb->addWidget(titleLbl);
-
-        // Separator
-        auto* vsep = new QFrame(tb); vsep->setFrameShape(QFrame::VLine);
-        vsep->setStyleSheet(QString("background:rgb(%1,%2,%3);max-width:1px;margin:4px 6px;")
-                                .arg(CBStyle::BORDER.red()).arg(CBStyle::BORDER.green()).arg(CBStyle::BORDER.blue()));
-        tb->addWidget(vsep);
-
-        // Palette buttons
-        struct PS { ElementType t; QString n; QColor c; };
-        for(auto& s : QVector<PS>{
-                                   { ElementType::Source,            "Source",   CBStyle::ORANGE },
-                                   { ElementType::Aperture,          "Aperture", CBStyle::ACCENT },
-                                   { ElementType::ApertureWithCover, "AP+Cover", CBStyle::ACCENT },
-                                   { ElementType::EmptyCavity,       "Cavity",   CBStyle::GREEN  },
-                                   { ElementType::DielectricCavity,  "Diel.Cav", CBStyle::GREEN  },
-                                   { ElementType::Load,              "Obs.Pt",   CBStyle::RED    }})
-            tb->addWidget(new PaletteButton(s.t, s.n, s.c, tb));
-
-        auto* sp = new QWidget(tb); sp->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-        tb->addWidget(sp);
-
-        // Action buttons
-        auto* bArr = makeToolBtn("⇌ Arrange",   CBStyle::TEXT_MUTED);
-        auto* bDel = makeToolBtn("✕ Delete",    CBStyle::RED);
-        auto* bClr = makeToolBtn("⊘ Clear",     CBStyle::ORANGE);
-        auto* bCmp = makeToolBtn("⚡ Compute",   CBStyle::GREEN, true);
-        auto* bExp = makeToolBtn("⬇ Export CSV", CBStyle::TEXT_MUTED);
-        tb->addWidget(bArr); tb->addWidget(bDel); tb->addWidget(bClr);
-        tb->addWidget(bCmp); tb->addWidget(bExp);
-        connect(bArr, &QPushButton::clicked, this, [this]{ canvas_->autoArrange(); });
-        connect(bDel, &QPushButton::clicked, this, [this]{ canvas_->removeSelected(); });
-        connect(bClr, &QPushButton::clicked, this, [this]{
-            canvas_->clearAll();
-            clearPlot();
-            setStatus("Canvas cleared — drag elements to build a new circuit.", CBStyle::TEXT_MUTED);
-        });
-        connect(bCmp, &QPushButton::clicked, this, &CircuitBuilderWindow::runCompute);
-        connect(bExp, &QPushButton::clicked, this, &CircuitBuilderWindow::onExportCSV);
-
-        // ── Central layout: splitter ──────────────────────────────
         auto* mainSpl = new QSplitter(Qt::Horizontal, this);
 
-        propPanel_ = new BuilderPropertyPanel(mainSpl);
-        mainSpl->addWidget(propPanel_);
+        // [T1.2-B] left side
+        QWidget* leftPanel = buildLeftPanel();
+        mainSpl->addWidget(leftPanel);
 
+        // Right side: vertical split (top section / plot)
         auto* rightSpl = new QSplitter(Qt::Vertical, mainSpl);
-        canvas_ = new AssemblyCanvas(rightSpl);
-        rightSpl->addWidget(canvas_);
 
-        // QCustomPlot — same setup as Phase A (mainwindow.cpp)
+        // [T1.4] Top section is itself a horizontal splitter:
+        //   left  ~65% : circuit canvas
+        //   right ~35% : read-only StackLayerPanel mirroring canvas elements
+        //
+        // The stack panel listens for canvas signals (circuitChanged,
+        // elementSelected) and the property panel's paramsChanged signal.
+        // Wiring is in connectSignals() further below.
+        auto* topSpl = new QSplitter(Qt::Horizontal, rightSpl);
+        canvas_ = new AssemblyCanvas(topSpl);
+        topSpl->addWidget(canvas_);
+
+        stackPanel_ = new StackLayerPanel(topSpl);
+        // Floor on the stack panel so it stays usable when the user drags
+        // the inner splitter; canvas takes priority for extra width.
+        stackPanel_->setMinimumWidth(220);
+        topSpl->addWidget(stackPanel_);
+        topSpl->setSizes({650, 350});                    // 65 / 35 default
+        topSpl->setStretchFactor(0, 1);                  // canvas absorbs growth
+        topSpl->setStretchFactor(1, 0);                  // stack panel stays compact
+        topSpl->setHandleWidth(2);
+        topSpl->setCollapsible(0, false);
+        topSpl->setCollapsible(1, false);
+
+        rightSpl->addWidget(topSpl);
+
         m_plot = new QCustomPlot(rightSpl);
         setupPlot();
         rightSpl->addWidget(m_plot);
         rightSpl->setSizes({400, 320});
 
         mainSpl->addWidget(rightSpl);
-        mainSpl->setSizes({245, 1195});
+        // Initial sizing: left panel ~260 px, right side fills the rest.
+        // The user can drag the splitter handle to resize per the Task 1.2
+        // design decision.
+        mainSpl->setSizes({260, 1180});
+        mainSpl->setStretchFactor(0, 0);   // left panel: don't auto-stretch
+        mainSpl->setStretchFactor(1, 1);   // right side: absorbs window growth
         mainSpl->setHandleWidth(2);
+        // Prevent the user from collapsing the left panel below usability.
+        leftPanel->setMinimumWidth(220);
         setCentralWidget(mainSpl);
 
         // ── Status bar ────────────────────────────────────────────
         statusLbl_ = new QLabel(
             "Ready  —  correct order: "
             "[Source]→[Aperture]→[Cavity(p)]→[Obs.Pt]→[Cavity(d-p)]  |  "
-            "Last Cavity auto-terminates to ground  |  ⚡ Compute");
+            "Last Cavity auto-terminates to ground  |  Compute");
         statusLbl_->setStyleSheet(QString("color:rgb(%1,%2,%3);")
                                       .arg(CBStyle::TEXT_MUTED.red()).arg(CBStyle::TEXT_MUTED.green()).arg(CBStyle::TEXT_MUTED.blue()));
         statusBar()->addWidget(statusLbl_);
@@ -927,20 +1478,30 @@ private:
                 this,   &CircuitBuilderWindow::onPlotClicked);
     }
 
-    QPushButton* makeToolBtn(const QString& text, QColor col, bool bold=false) {
-        auto* b = new QPushButton(text);
-        b->setStyleSheet(QString(
-                             "QPushButton{color:rgb(%1,%2,%3);background:rgb(%4,%5,%6);"
-                             "border:1px solid rgb(%1,%2,%3);font-weight:%7;padding:5px 14px;border-radius:5px;}"
-                             "QPushButton:hover{background:rgba(%1,%2,%3,25);border:1.5px solid rgb(%1,%2,%3);}"
-                             "QPushButton:pressed{background:rgba(%1,%2,%3,45);}")
-                             .arg(col.red()).arg(col.green()).arg(col.blue())
-                             .arg(CBStyle::SURFACE.red()).arg(CBStyle::SURFACE.green()).arg(CBStyle::SURFACE.blue())
-                             .arg(bold?"700":"400"));
-        return b;
-    }
-
+    // ============================================================
+    //  connectSignals
+    //
+    //  [T1.2-E] Lambda captures use [this] explicitly throughout.
+    // ============================================================
     void connectSignals() {
+        // Action buttons
+        connect(btnArrange_, &QPushButton::clicked, this,
+                [this]{ canvas_->autoArrange(); });
+        connect(btnDelete_,  &QPushButton::clicked, this,
+                [this]{ canvas_->removeSelected(); });
+        connect(btnClear_,   &QPushButton::clicked, this,
+                [this]{
+                    canvas_->clearAll();
+                    clearPlot();
+                    setStatus("Canvas cleared — drag elements to build a new circuit.",
+                              CBStyle::TEXT_MUTED);
+                });
+        connect(btnCompute_, &QPushButton::clicked, this,
+                &CircuitBuilderWindow::runCompute);
+        connect(btnExport_,  &QPushButton::clicked, this,
+                &CircuitBuilderWindow::onExportCSV);
+
+        // Canvas <-> property panel
         connect(canvas_, &AssemblyCanvas::elementDropped, this,
                 [this](ElementType t, QPointF pos){
                     auto* el = canvas_->addElement(t, pos);
@@ -950,12 +1511,26 @@ private:
                                 "Source → Aperture → Cavity → Obs.Pt").arg(el->params.label),
                         CBStyle::ACCENT);
                 });
-        connect(canvas_, &AssemblyCanvas::elementSelected,  this,
-                [this](CanvasElement* el){ propPanel_->showElement(el); });
-        connect(canvas_, &AssemblyCanvas::circuitChanged,   this,
-                [this]{ clearPlot(); });
+        connect(canvas_, &AssemblyCanvas::elementSelected, this,
+                [this](CanvasElement* el){
+                    propPanel_->showElement(el);
+                    // [T1.4] Mirror canvas selection on the layer stack.
+                    stackPanel_->setSelected(el);
+                });
+        connect(canvas_, &AssemblyCanvas::circuitChanged, this,
+                [this]{
+                    clearPlot();
+                    // [T1.4] Any structural change to the canvas (add /
+                    // remove / clear / arrange) rebuilds the stack from
+                    // canvas_->elements, sorted left-to-right by X.
+                    stackPanel_->rebuild(canvas_->elements);
+                });
         connect(propPanel_, &BuilderPropertyPanel::paramsChanged, this,
-                [this](CanvasElement* el){ if(el) el->update(); });
+                [this](CanvasElement* el){
+                    if (el) el->update();
+                    // [T1.4] Live-update only the affected card; no rebuild.
+                    if (el) stackPanel_->refreshElement(el);
+                });
     }
 
     // ============================================================
@@ -980,7 +1555,8 @@ private:
     {
         auto& els = canvas_->elements;
         if(els.size() < 3){
-            setStatus("❌  Minimum circuit: Source → Aperture → Cavity → Obs.Pt", CBStyle::RED);
+            setStatus("Minimum circuit: Source → Aperture → Cavity → Obs.Pt",
+                      CBStyle::RED);
             return;
         }
 
@@ -991,8 +1567,8 @@ private:
 
         // Validate: leftmost must be Source
         if(ordered.first()->params.type != ElementType::Source){
-            setStatus("❌  Leftmost element must be Source.  "
-                      "Use ⇌ Arrange then drag Source to the left.", CBStyle::RED);
+            setStatus("Leftmost element must be Source.  "
+                      "Use Arrange then drag Source to the left.", CBStyle::RED);
             return;
         }
 
@@ -1000,7 +1576,8 @@ private:
         const bool hasObs = std::any_of(ordered.begin(), ordered.end(),
                                         [](CanvasElement* e){ return e->params.type==ElementType::Load; });
         if(!hasObs){
-            setStatus("❌  Add at least one Obs.Pt element to the circuit.", CBStyle::RED);
+            setStatus("Add at least one Obs.Pt element to the circuit.",
+                      CBStyle::RED);
             return;
         }
 
@@ -1046,24 +1623,17 @@ private:
                 break;
 
             // ── Slot Aperture — SHUNT branch (Fig. 3.7 Branch II) ──────
-            // Z_ap connects from node nFrom to ground (node 0).
-            // nodeIdx NOT incremented: the main circuit path continues
-            // from the SAME node after the aperture shunt.
-            // This matches Eq. 3.13 and the A-matrix column 2 of Eq. 3.10:
-            //   A[0][1] = +1  (only appears in row of node nFrom → ground).
             case ElementType::Aperture:
                 solver.addBranch(std::make_shared<AP_SlotAperture>(
-                    nFrom, 0, bid,     // [FIX-B3] nTo=0 (ground), was nodeIdx+1
+                    nFrom, 0, bid,
                     a_g, b_g, ep.l_slot, ep.w_slot, t_g));
-                // [FIX-B3] no ++nodeIdx — circuit path continues from nFrom
                 break;
 
             // ── Aperture With Cover — also SHUNT ────────────────────────
             case ElementType::ApertureWithCover:
                 solver.addBranch(std::make_shared<AP_SlotWithCover>(
-                    nFrom, 0, bid,     // [FIX-B3] nTo=0 (ground)
+                    nFrom, 0, bid,
                     a_g, b_g, ep.l_slot, ep.w_slot, t_g, ep.tau_cover));
-                // [FIX-B3] no ++nodeIdx
                 break;
 
             // Series cavity (air-filled TL)
@@ -1086,12 +1656,11 @@ private:
             }
 
             // SHUNT Obs.Point: nFrom → 0 [D1]
-            // nodeIdx NOT incremented — circuit continues from nFrom
             case ElementType::Load:
                 solver.addBranch(std::make_shared<LOAD_Impedance>(
                     nFrom, 0, bid,
                     Complex(ep.ZL_real, ep.ZL_imag)));
-                ++obsCount;   // [FIX-D2] increment BEFORE building label
+                ++obsCount;
                 obsNodes.append(nFrom);
                 obsLabels.append(ep.label.isEmpty()
                                      ? QString("P%1").arg(obsCount)
@@ -1101,23 +1670,12 @@ private:
         }
 
         if(obsNodes.isEmpty()){
-            setStatus("❌  No observation nodes built (internal error).", CBStyle::RED);
+            setStatus("No observation nodes built (internal error).",
+                      CBStyle::RED);
             return;
         }
 
         // ── Auto short-circuit termination ────────────────────────────────────────
-        //
-        // The closed metallic back wall = short circuit (V = 0).
-        // We add a near-short (Z = 1e-4 Ω) at the final series node.
-        //
-        // [FIX-D3] CRITICAL: do NOT add the short if nodeIdx is already
-        //  an observation node.  Adding a 1e-4 Ω shunt at the SAME node
-        //  as an Obs.Pt shunts V_obs ≈ 0 → SE → +∞ (the 110–172 dB symptom).
-        //
-        //  This collision only occurs in the 4-element circuit
-        //  (Source→Aperture→Cavity→Obs.Pt).  In the correct 5-element
-        //  circuit (…→Obs.Pt→Cavity_dp) nodeIdx points one node PAST
-        //  the observation node, so there is no collision.
         {
             auto lastSeries = std::find_if(
                 ordered.rbegin(), ordered.rend(),
@@ -1128,7 +1686,6 @@ private:
                 ((*lastSeries)->params.type == ElementType::EmptyCavity ||
                  (*lastSeries)->params.type == ElementType::DielectricCavity);
 
-            // [FIX-D3] guard: only add short when nodeIdx is not an obs node
             const bool obsAtFinalNode = obsNodes.contains(nodeIdx);
 
             if(isCavityTerminated && !obsAtFinalNode) {
@@ -1186,7 +1743,7 @@ private:
         const double seMin = valid.isEmpty() ? 0.0 : *std::min_element(valid.begin(),valid.end());
         const double seMax = valid.isEmpty() ? 0.0 : *std::max_element(valid.begin(),valid.end());
         setStatus(
-            QString("✓  %1 pts · %2 curve(s) · SE: %3…%4 dB · %5–%6 GHz")
+            QString("OK  %1 pts · %2 curve(s) · SE: %3…%4 dB · %5–%6 GHz")
                 .arg(Np).arg(obsNodes.size())
                 .arg(seMin,0,'f',1).arg(seMax,0,'f',1)
                 .arg(sp.freqStart,0,'f',1).arg(sp.freqEnd,0,'f',1),
@@ -1342,7 +1899,7 @@ private:
     void onExportCSV()
     {
         if(m_freqs.isEmpty()){
-            QMessageBox::warning(this, "No Data", "Run ⚡ Compute first.");
+            QMessageBox::warning(this, "No Data", "Run Compute first.");
             return;
         }
         const QString fn = QFileDialog::getSaveFileName(

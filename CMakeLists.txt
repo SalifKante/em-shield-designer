@@ -50,6 +50,8 @@ qt_add_executable(em-shield-designer
     CircuitBuilderWindow.h
     resources/resources.qrc
     ${APP_WIN_RESOURCE}
+    Styles.h
+    StackLayerPanel.h
 )
 
 # macOS bundle icon file name (ignored on other platforms).
