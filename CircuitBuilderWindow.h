@@ -78,6 +78,9 @@
 #include <QDrag>
 #include <QMimeData>
 #include <QMouseEvent>
+#include <QWheelEvent>
+#include <QKeyEvent>
+#include <QTimer>
 #include <QDropEvent>
 #include <QDragEnterEvent>
 #include <QDragMoveEvent>
@@ -700,6 +703,50 @@ public:
                           .arg(CBStyle::BG.red()).arg(CBStyle::BG.green()).arg(CBStyle::BG.blue()));
         setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
         setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+
+        // [T1.5] Zoom support setup.
+        //
+        // setTransformationAnchor(AnchorUnderMouse) makes QGraphicsView::scale()
+        // pivot around the cursor position rather than the view centre. This is
+        // what gives the wheel-zoom its "pinch-around-cursor" feel.
+        //
+        // Focus policy is StrongFocus so that key events (Ctrl+0) are delivered
+        // once the user has interacted with the canvas at least once.
+        setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
+        setResizeAnchor(QGraphicsView::AnchorViewCenter);
+        setFocusPolicy(Qt::StrongFocus);
+
+        // Zoom indicator overlay — a frameless QLabel parented to the viewport
+        // so it floats above the scene without participating in the scene's
+        // coordinate system. Positioned in resizeEvent() to stay anchored
+        // bottom-right whenever the view itself resizes.
+        zoomIndicator_ = new QLabel(viewport());
+        zoomIndicator_->setObjectName("ZoomIndicator");
+        zoomIndicator_->setStyleSheet(QString(
+                                          "QLabel#ZoomIndicator{"
+                                          "background:%1;"
+                                          "color:white;"
+                                          "font-family:'Courier New',monospace;"
+                                          "font-size:11px;"
+                                          "font-weight:bold;"
+                                          "padding:4px 10px;"
+                                          "border:1px solid %2;"
+                                          "border-radius:4px;"
+                                          "}"
+                                          )
+                                          .arg(EMStyle::rgba(CBStyle::TEXT, 220))
+                                          .arg(EMStyle::rgb(CBStyle::TEXT)));
+        zoomIndicator_->setAlignment(Qt::AlignCenter);
+        zoomIndicator_->setText(QStringLiteral("Zoom: 100%"));
+        zoomIndicator_->adjustSize();
+        zoomIndicator_->hide();
+
+        // Auto-hide timer — restarted on every zoom action; fires once.
+        zoomIndicatorTimer_ = new QTimer(this);
+        zoomIndicatorTimer_->setSingleShot(true);
+        zoomIndicatorTimer_->setInterval(2000);   // 2 seconds per spec
+        connect(zoomIndicatorTimer_, &QTimer::timeout, this,
+                [this]{ if (zoomIndicator_) zoomIndicator_->hide(); });
     }
 
 signals:
@@ -728,6 +775,103 @@ protected:
         QGraphicsView::mousePressEvent(e);
         emit elementSelected(dynamic_cast<CanvasElement*>(itemAt(e->pos())));
     }
+
+    // ─── [T1.5] Mouse-wheel zoom (50%–300%, pivots on cursor) ───────────
+    //
+    // Scroll up  (angleDelta().y() > 0) → zoom in
+    // Scroll down (angleDelta().y() < 0) → zoom out
+    //
+    // The zoom factor is applied incrementally via scale() rather than by
+    // resetting the transform. This lets QGraphicsView's AnchorUnderMouse
+    // mode handle the cursor-pivot math automatically.
+    //
+    // Bypassing QGraphicsView::wheelEvent() prevents the default behaviour
+    // (vertical scroll), which would compete with the zoom.
+    void wheelEvent(QWheelEvent* e) override {
+        constexpr qreal kStep = 1.15;        // ~15% per notch — feels natural
+        constexpr qreal kMin  = 0.50;        // 50% lower bound
+        constexpr qreal kMax  = 3.00;        // 300% upper bound
+
+        const int delta = e->angleDelta().y();
+        if (delta == 0) {
+            QGraphicsView::wheelEvent(e);
+            return;
+        }
+
+        const qreal factor = (delta > 0) ? kStep : (1.0 / kStep);
+        const qreal target = qBound(kMin, zoomFactor_ * factor, kMax);
+
+        // If the clamp eliminates the change (we were already at the bound
+        // and tried to push past it), don't apply anything — visually nothing
+        // happens but the indicator still flashes to confirm the input.
+        if (qFuzzyCompare(target, zoomFactor_)) {
+            showZoomIndicator();
+            e->accept();
+            return;
+        }
+
+        const qreal applied = target / zoomFactor_;
+        scale(applied, applied);
+        zoomFactor_ = target;
+
+        showZoomIndicator();
+        e->accept();
+    }
+
+    // ─── [T1.5] Ctrl+0 resets zoom to 100% ──────────────────────────────
+    //
+    // Resets the entire view transform (which is exactly the accumulated
+    // scale, since we never apply any other transform). After reset, also
+    // recenter on the scene contents so the user isn't left looking at
+    // empty space if they had zoomed deep into a corner.
+    void keyPressEvent(QKeyEvent* e) override {
+        if (e->key() == Qt::Key_0 && (e->modifiers() & Qt::ControlModifier)) {
+            resetTransform();
+            zoomFactor_ = 1.0;
+            // If there are elements, gently re-centre so the user lands on
+            // something visible. If empty, leave the view at the origin.
+            if (!elements.isEmpty()) {
+                centerOn(scene()->itemsBoundingRect().center());
+            }
+            showZoomIndicator();
+            e->accept();
+            return;
+        }
+        QGraphicsView::keyPressEvent(e);
+    }
+
+    // [T1.5] Keep the zoom indicator anchored at bottom-right when the
+    // viewport resizes (window resize, splitter drag, etc.).
+    void resizeEvent(QResizeEvent* e) override {
+        QGraphicsView::resizeEvent(e);
+        repositionZoomIndicator();
+    }
+
+private:
+    // [T1.5] Update the indicator text, move it to its anchor position,
+    // make it visible, and (re)start the 2-second auto-hide timer.
+    void showZoomIndicator() {
+        if (!zoomIndicator_) return;
+        zoomIndicator_->setText(
+            QStringLiteral("Zoom: %1%").arg(int(std::round(zoomFactor_ * 100.0))));
+        zoomIndicator_->adjustSize();
+        repositionZoomIndicator();
+        zoomIndicator_->raise();
+        zoomIndicator_->show();
+        zoomIndicatorTimer_->start();   // resets the countdown
+    }
+
+    void repositionZoomIndicator() {
+        if (!zoomIndicator_ || !viewport()) return;
+        const int margin = 12;
+        const int x = viewport()->width()  - zoomIndicator_->width()  - margin;
+        const int y = viewport()->height() - zoomIndicator_->height() - margin;
+        zoomIndicator_->move(qMax(0, x), qMax(0, y));
+    }
+
+    qreal   zoomFactor_         {1.0};
+    QLabel* zoomIndicator_      {nullptr};
+    QTimer* zoomIndicatorTimer_ {nullptr};
 
 public slots:
     CanvasElement* addElement(ElementType type, QPointF pos) {
