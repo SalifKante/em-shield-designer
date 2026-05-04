@@ -1353,6 +1353,16 @@ private:
     QPushButton* btnCompute_ {nullptr};
     QPushButton* btnExport_  {nullptr};
 
+    // [T1.5b] Topology validity indicator — red/green dot + brief text
+    // shown directly above the COMPUTE button. Driven by
+    // refreshValidityIndicator() which re-runs validateCircuitCore() on
+    // every circuitChanged signal. The Compute button itself remains
+    // clickable in all states; clicking it on an invalid circuit raises
+    // a full-text dialog. The row's tooltip carries the same full text.
+    QFrame*  validityDot_   {nullptr};
+    QLabel*  validityLabel_ {nullptr};
+    QWidget* validityRow_   {nullptr};
+
     // ── Computed result store (export + interactive readout) ─────
     QVector<double>          m_freqs;
     QVector<QVector<double>> m_SE_data;
@@ -1486,6 +1496,51 @@ private:
         auto* primaryLayout = new QVBoxLayout(primarySection);
         primaryLayout->setContentsMargins(10, 8, 10, 12);
         primaryLayout->setSpacing(6);
+
+        // [T1.5b] Validity indicator row.
+        // Sits just above the COMPUTE button so its colour gives the user
+        // a one-glance read of whether Compute will succeed. The row is a
+        // thin horizontal strip:
+        //
+        //     [● 12px]   <brief status text>
+        //
+        // Tooltip on the whole row carries the long-form explanation.
+        validityRow_ = new QWidget(primarySection);
+        validityRow_->setObjectName("ValidityRow");
+        validityRow_->setStyleSheet(
+            "QWidget#ValidityRow{background:transparent;}");
+        auto* validityLayout = new QHBoxLayout(validityRow_);
+        validityLayout->setContentsMargins(2, 2, 2, 2);
+        validityLayout->setSpacing(8);
+
+        validityDot_ = new QFrame(validityRow_);
+        validityDot_->setFrameShape(QFrame::NoFrame);
+        // Initial style is set by refreshValidityIndicator() but we provide
+        // a visible default so the row is never blank during construction.
+        validityDot_->setStyleSheet(QString(
+                                        "QFrame{"
+                                        "background:%1;"
+                                        "border-radius:6px;"
+                                        "min-width:12px;max-width:12px;"
+                                        "min-height:12px;max-height:12px;"
+                                        "}"
+                                        ).arg(EMStyle::rgb(CBStyle::RED)));
+        validityLayout->addWidget(validityDot_);
+
+        validityLabel_ = new QLabel(QStringLiteral("Empty canvas"), validityRow_);
+        validityLabel_->setStyleSheet(QString(
+                                          "QLabel{"
+                                          "color:%1;"
+                                          "background:transparent;"
+                                          "font-family:'Courier New',monospace;"
+                                          "font-size:10px;"
+                                          "font-weight:bold;"
+                                          "letter-spacing:1px;"
+                                          "}"
+                                          ).arg(EMStyle::rgb(CBStyle::RED)));
+        validityLayout->addWidget(validityLabel_, /*stretch*/ 1);
+
+        primaryLayout->addWidget(validityRow_);
 
         btnCompute_ = new QPushButton("COMPUTE", primarySection);
         btnCompute_->setMinimumHeight(38);
@@ -1668,6 +1723,10 @@ private:
                     // remove / clear / arrange) rebuilds the stack from
                     // canvas_->elements, sorted left-to-right by X.
                     stackPanel_->rebuild(canvas_->elements);
+                    // [T1.5b] Re-evaluate topology and recolour the
+                    // validity dot + status text. Cheap O(N) walk; fine
+                    // to call on every structural change.
+                    refreshValidityIndicator();
                 });
         connect(propPanel_, &BuilderPropertyPanel::paramsChanged, this,
                 [this](CanvasElement* el){
@@ -1675,6 +1734,282 @@ private:
                     // [T1.4] Live-update only the affected card; no rebuild.
                     if (el) stackPanel_->refreshElement(el);
                 });
+
+        // [T1.5b] Initial paint of the validity indicator. Without this
+        // call the row would stay at its construction-time default ("Empty
+        // canvas" / red) until the user does *something* to the canvas.
+        // That happens to be correct for an empty startup canvas, but
+        // calling here makes startup state robust if the canvas ever ships
+        // with pre-populated elements (e.g. file load in a future task).
+        refreshValidityIndicator();
+    }
+
+    // ============================================================
+    //  [T1.5b] Circuit topology validation
+    //
+    //  The MNA solver assumes a strict alternating chain:
+    //
+    //      Source -> ( Aperture -> Cavity )+ -> Obs.Pt
+    //
+    //  where Aperture is either an AP_SlotAperture or an
+    //  AP_SlotWithCover, and Cavity is either a TL_EmptyCavity or
+    //  a TL_DielectricCavity. The chain must be sorted by X
+    //  position. Any deviation produces incorrect SE values or
+    //  a degenerate MNA system.
+    //
+    //  Validation runs in two places:
+    //    1. runCompute() — fails loudly with a QMessageBox.
+    //    2. refreshValidityIndicator() — drives the dot/text row
+    //       above the COMPUTE button (live status).
+    //
+    //  Single source of truth: validateCircuitCore() returns an
+    //  error code + offending index. Two thin formatters translate
+    //  the code into either a brief one-line message (for the
+    //  indicator) or a full multi-sentence message (for the
+    //  dialog and tooltip).
+    // ============================================================
+
+    enum class ValidationCode {
+        Ok,
+        EmptyCanvas,            // 0 elements
+        SourceMissing,          // no Source at all
+        SourceMultiple,         // >1 Source
+        SourceNotFirst,         // Source not at leftmost X position
+        ObsMissing,             // no Obs.Pt at all
+        ObsMultiple,            // >1 Obs.Pt
+        ObsNotLast,             // Obs.Pt not at rightmost X position
+        ApertureMissing,        // no Aperture/AP+Cover at all
+        CavityMissing,          // no Cavity/Diel.Cav at all
+        UnbalancedSections,     // |#apertures - #cavities| != 0
+        PatternViolation        // alternation broken at some position
+    };
+
+    struct ValidationResult {
+        ValidationCode code   {ValidationCode::Ok};
+        int            offset {-1};   // offset into the X-sorted sequence,
+        // or -1 if not relevant for this code
+    };
+
+    // Helper predicates — kept inline + static so any member can use them.
+    static bool isSource   (ElementType t) { return t == ElementType::Source; }
+    static bool isObs      (ElementType t) { return t == ElementType::Load; }
+    static bool isAperture (ElementType t) { return t == ElementType::Aperture
+                                                   || t == ElementType::ApertureWithCover; }
+    static bool isCavity   (ElementType t) { return t == ElementType::EmptyCavity
+                                                 || t == ElementType::DielectricCavity; }
+
+    // ─── Core validator ────────────────────────────────────────
+    //
+    // Steps, in priority order:
+    //   1. empty canvas
+    //   2. count of Sources (must == 1) and Obs.Pts (must == 1)
+    //   3. presence of >=1 aperture, >=1 cavity
+    //   4. balance #apertures == #cavities
+    //   5. Source is leftmost, Obs.Pt is rightmost
+    //   6. middle of the chain alternates Aperture, Cavity, Aperture,
+    //      Cavity, ..., ending on Cavity just before the Obs.Pt.
+    //
+    // Reads from canvas_->elements; sorts a local copy. Pure function
+    // w.r.t. the canvas (does not mutate state).
+    ValidationResult validateCircuitCore() const {
+        if (!canvas_ || canvas_->elements.isEmpty()) {
+            return {ValidationCode::EmptyCanvas, -1};
+        }
+
+        // Sort by X position — same comparator as runCompute() and
+        // StackLayerPanel::rebuild() — so all three views agree on order.
+        QVector<CanvasElement*> ordered = canvas_->elements;
+        std::sort(ordered.begin(), ordered.end(),
+                  [](CanvasElement* a, CanvasElement* b){
+                      return a->pos().x() < b->pos().x();
+                  });
+
+        const int n = ordered.size();
+
+        // Count types
+        int nSrc = 0, nObs = 0, nAp = 0, nCav = 0;
+        for (auto* el : ordered) {
+            const ElementType t = el->params.type;
+            if (isSource(t))   ++nSrc;
+            if (isObs(t))      ++nObs;
+            if (isAperture(t)) ++nAp;
+            if (isCavity(t))   ++nCav;
+        }
+
+        if (nSrc == 0)                     return {ValidationCode::SourceMissing,    -1};
+        // [T1.5b-FIX] Order of "missing" checks matches the user's natural
+        // left-to-right build order: Source → Aperture → Cavity → Obs.Pt.
+        // Originally Obs.Pt-missing was checked before Aperture/Cavity-missing,
+        // which made the indicator say "Obs.Pt missing" even when the user had
+        // only just started by placing a Source. The user couldn't see the
+        // intermediate hints ("Aperture missing", "Cavity missing") because
+        // the early return skipped them. Reordering yields a natural
+        // breadcrumb trail: each new dropped element advances the indicator
+        // to the next missing piece.
+        if (nAp  == 0)                     return {ValidationCode::ApertureMissing,  -1};
+        if (nCav == 0)                     return {ValidationCode::CavityMissing,    -1};
+        if (nObs == 0)                     return {ValidationCode::ObsMissing,       -1};
+        // "Multiple of X" checks come AFTER all the "missing" checks because
+        // having extras is only meaningful once the minimum set is present.
+        // A user with two Sources but no Aperture has a more fundamental
+        // problem ("Aperture missing") that we report first.
+        if (nSrc >  1)                     return {ValidationCode::SourceMultiple,   -1};
+        if (nObs >  1)                     return {ValidationCode::ObsMultiple,      -1};
+        if (nAp != nCav)                   return {ValidationCode::UnbalancedSections, -1};
+
+        // Position checks
+        if (!isSource(ordered.front()->params.type))
+            return {ValidationCode::SourceNotFirst, 0};
+        if (!isObs(ordered.back()->params.type))
+            return {ValidationCode::ObsNotLast, n - 1};
+
+        // Pattern check on the middle: indices 1..n-2 must be
+        //   Aperture, Cavity, Aperture, Cavity, ...
+        // i.e. element at offset (1 + 2k) is Aperture, at (1 + 2k + 1) is Cavity.
+        for (int i = 1; i < n - 1; ++i) {
+            const ElementType t = ordered[i]->params.type;
+            const int k = i - 1;          // 0-based middle index
+            const bool wantAperture = (k % 2 == 0);
+            const bool ok = wantAperture ? isAperture(t) : isCavity(t);
+            if (!ok) {
+                return {ValidationCode::PatternViolation, i};
+            }
+        }
+
+        return {ValidationCode::Ok, -1};
+    }
+
+    // ─── Brief message — for the status row dot label ──────────
+    static QString validationBrief(ValidationCode c) {
+        switch (c) {
+        case ValidationCode::Ok:                  return QStringLiteral("Circuit valid");
+        case ValidationCode::EmptyCanvas:         return QStringLiteral("Empty canvas");
+        case ValidationCode::SourceMissing:       return QStringLiteral("Source missing");
+        case ValidationCode::SourceMultiple:      return QStringLiteral("Multiple Sources");
+        case ValidationCode::SourceNotFirst:      return QStringLiteral("Source must be first");
+        case ValidationCode::ObsMissing:          return QStringLiteral("Obs.Pt missing");
+        case ValidationCode::ObsMultiple:         return QStringLiteral("Multiple Obs.Pts");
+        case ValidationCode::ObsNotLast:          return QStringLiteral("Obs.Pt must be last");
+        case ValidationCode::ApertureMissing:     return QStringLiteral("Aperture missing");
+        case ValidationCode::CavityMissing:       return QStringLiteral("Cavity missing");
+        case ValidationCode::UnbalancedSections:  return QStringLiteral("Unbalanced sections");
+        case ValidationCode::PatternViolation:    return QStringLiteral("Invalid order");
+        }
+        return QString();
+    }
+
+    // ─── Full message — for the QMessageBox and tooltip ────────
+    QString validationFull(ValidationResult r) const {
+        switch (r.code) {
+        case ValidationCode::Ok:
+            return QStringLiteral("Circuit topology is valid.");
+        case ValidationCode::EmptyCanvas:
+            return QStringLiteral(
+                "The canvas is empty.\n\n"
+                "Drop elements onto the canvas to build a circuit. "
+                "Minimum legal circuit is:\n"
+                "    Source -> Aperture -> Cavity -> Obs.Pt");
+        case ValidationCode::SourceMissing:
+            return QStringLiteral(
+                "No Source element found.\n\n"
+                "Every circuit needs exactly one Source to provide the "
+                "excitation voltage V0. Drag a Source element onto the canvas.");
+        case ValidationCode::SourceMultiple:
+            return QStringLiteral(
+                "Multiple Source elements found.\n\n"
+                "Only one Source is allowed per circuit. Delete the extras "
+                "so a single excitation V0 drives the chain.");
+        case ValidationCode::SourceNotFirst:
+            return QStringLiteral(
+                "Source is not the leftmost element.\n\n"
+                "The Source must be placed at the leftmost X position because "
+                "the equivalent circuit is read left-to-right starting from V0. "
+                "Move it to the left of all other elements, or click Arrange.");
+        case ValidationCode::ObsMissing:
+            return QStringLiteral(
+                "No Obs.Pt element found.\n\n"
+                "Every circuit needs exactly one Obs.Pt where the shielding "
+                "effectiveness SE = -20 log10|2 U2 / V0| is measured. "
+                "Drag an Obs.Pt element onto the canvas.");
+        case ValidationCode::ObsMultiple:
+            return QStringLiteral(
+                "Multiple Obs.Pt elements found.\n\n"
+                "Only one Obs.Pt is allowed per circuit. Delete the extras.");
+        case ValidationCode::ObsNotLast:
+            return QStringLiteral(
+                "Obs.Pt is not the rightmost element.\n\n"
+                "The Obs.Pt must be placed at the rightmost X position so the "
+                "back-wall short-circuit termination can be appended after it. "
+                "Move it to the right of all other elements, or click Arrange.");
+        case ValidationCode::ApertureMissing:
+            return QStringLiteral(
+                "No Aperture element found.\n\n"
+                "The circuit needs at least one Aperture (or AP+Cover) - the "
+                "coupling element from the external field through the front "
+                "wall into the cavity.");
+        case ValidationCode::CavityMissing:
+            return QStringLiteral(
+                "No Cavity element found.\n\n"
+                "The circuit needs at least one Cavity (or Diel.Cav) section "
+                "behind the aperture to define the waveguide region of the "
+                "enclosure interior.");
+        case ValidationCode::UnbalancedSections:
+            return QStringLiteral(
+                "Each Aperture must be paired with a Cavity.\n\n"
+                "The strict-alternation rule requires the same number of "
+                "Apertures and Cavities (one per section). Currently they "
+                "do not match - add or remove elements until the counts "
+                "are equal.");
+        case ValidationCode::PatternViolation:
+            return QStringLiteral(
+                "Element order is invalid.\n\n"
+                "After the Source, the chain must alternate "
+                "Aperture -> Cavity -> Aperture -> Cavity -> ... and end on a "
+                "Cavity just before the Obs.Pt. Reorder the elements (drag, "
+                "or click Arrange) so the pattern is followed.");
+        }
+        return QString();
+    }
+
+    // ─── Indicator update — called from connectSignals lambdas ─
+    //
+    // Re-evaluates topology and updates the dot colour, the brief text
+    // beside the dot, and the tooltip (full message) on the row.
+    // Cheap; safe to call on every circuitChanged.
+    void refreshValidityIndicator() {
+        if (!validityDot_ || !validityLabel_) return;
+        const ValidationResult r = validateCircuitCore();
+        const bool ok = (r.code == ValidationCode::Ok);
+        const QColor dotColor = ok ? CBStyle::GREEN : CBStyle::RED;
+
+        // Dot is a tiny QFrame with rounded-corner background — colour swap
+        // via stylesheet is cheaper than QPainter and lets QSS govern radius.
+        validityDot_->setStyleSheet(QString(
+                                        "QFrame{"
+                                        "background:%1;"
+                                        "border-radius:6px;"
+                                        "min-width:12px;max-width:12px;"
+                                        "min-height:12px;max-height:12px;"
+                                        "}"
+                                        ).arg(EMStyle::rgb(dotColor)));
+
+        const QString brief = validationBrief(r.code);
+        validityLabel_->setText(brief);
+        validityLabel_->setStyleSheet(QString(
+                                          "QLabel{"
+                                          "color:%1;"
+                                          "background:transparent;"
+                                          "font-family:'Courier New',monospace;"
+                                          "font-size:10px;"
+                                          "font-weight:bold;"
+                                          "letter-spacing:1px;"
+                                          "}"
+                                          ).arg(EMStyle::rgb(dotColor)));
+
+        // Tooltip on the whole row carries the long-form explanation so the
+        // user can find the "why" without clicking anything.
+        const QString full = validationFull(r);
+        if (validityRow_) validityRow_->setToolTip(full);
     }
 
     // ============================================================
@@ -1697,33 +2032,27 @@ private:
     // ============================================================
     void runCompute()
     {
-        auto& els = canvas_->elements;
-        if(els.size() < 3){
-            setStatus("Minimum circuit: Source → Aperture → Cavity → Obs.Pt",
-                      CBStyle::RED);
+        // [T1.5b] Single-source validation gate. Must run before any
+        // sorting, MNA assembly, or sweep — a malformed circuit yields
+        // either a degenerate matrix (Eigen exception) or physically
+        // meaningless SE numbers, both of which are unacceptable.
+        const ValidationResult vr = validateCircuitCore();
+        if (vr.code != ValidationCode::Ok) {
+            const QString brief = validationBrief(vr.code);
+            const QString full  = validationFull(vr);
+            QMessageBox::warning(this, "Circuit topology error", full);
+            setStatus(QString("Cannot compute — %1.").arg(brief), CBStyle::RED);
             return;
         }
 
-        // Sort elements by X position to define circuit order
+        auto& els = canvas_->elements;
+
+        // Sort elements by X position to define circuit order. Validation
+        // above already confirmed: Source at front, Obs.Pt at back, the
+        // middle alternates Aperture/Cavity, equal counts on both sides.
         QVector<CanvasElement*> ordered = els;
         std::sort(ordered.begin(), ordered.end(),
                   [](CanvasElement* a, CanvasElement* b){ return a->pos().x() < b->pos().x(); });
-
-        // Validate: leftmost must be Source
-        if(ordered.first()->params.type != ElementType::Source){
-            setStatus("Leftmost element must be Source.  "
-                      "Use Arrange then drag Source to the left.", CBStyle::RED);
-            return;
-        }
-
-        // Validate: at least one Obs.Pt exists
-        const bool hasObs = std::any_of(ordered.begin(), ordered.end(),
-                                        [](CanvasElement* e){ return e->params.type==ElementType::Load; });
-        if(!hasObs){
-            setStatus("Add at least one Obs.Pt element to the circuit.",
-                      CBStyle::RED);
-            return;
-        }
 
         // Advisory: if the circuit ends with a Cavity (not an Obs.Pt), warn the user
         // that the right-wall short-circuit termination will be added automatically.
