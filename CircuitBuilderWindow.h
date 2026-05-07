@@ -134,6 +134,7 @@ inline const QColor TEXT_DIM  { 150, 175, 165 };
 #define CBSTYLE_DECLARED 1
 
 #include "Styles.h"   // [T1.2-D] central QSS + button factory
+#include "MessageDialog.h"   // [T1.6] custom error/success dialog
 
 // NOTE: StackLayerPanel.h is included AFTER class CanvasElement is declared,
 // further down in this file. See [T1.4-INCLUDE] marker below.
@@ -2040,7 +2041,12 @@ private:
         if (vr.code != ValidationCode::Ok) {
             const QString brief = validationBrief(vr.code);
             const QString full  = validationFull(vr);
-            QMessageBox::warning(this, "Circuit topology error", full);
+            // [T1.6] Custom branded dialog replaces the default QMessageBox.
+            // The full message body carries multi-line guidance from the
+            // Task 1.5b validation message bank (validationFull()).
+            MessageDialog::error(this,
+                                 QStringLiteral("Circuit topology error"),
+                                 full);
             setStatus(QString("Cannot compute — %1.").arg(brief), CBStyle::RED);
             return;
         }
@@ -2368,11 +2374,24 @@ private:
 
     // ============================================================
     //  onExportCSV — same format as Phase A mainwindow
+    //
+    //  [T1.6] Three user-facing dialogs:
+    //    1. No-data error  : if the user clicks Export before clicking
+    //                        Compute, there is nothing to write.
+    //    2. File-write err : the chosen path could not be opened.
+    //    3. Success        : confirms the file path so the user can
+    //                        find the saved CSV.
     // ============================================================
     void onExportCSV()
     {
         if(m_freqs.isEmpty()){
-            QMessageBox::warning(this, "No Data", "Run Compute first.");
+            MessageDialog::error(
+                this,
+                QStringLiteral("No data to export"),
+                QStringLiteral(
+                    "There is no computed SE data to export.\n\n"
+                    "Click COMPUTE first to populate the plot, then "
+                    "use Export CSV to save the results."));
             return;
         }
         const QString fn = QFileDialog::getSaveFileName(
@@ -2381,7 +2400,13 @@ private:
 
         std::ofstream f(fn.toStdString());
         if(!f.is_open()){
-            QMessageBox::critical(this, "Error", "Cannot open file for writing.");
+            MessageDialog::error(
+                this,
+                QStringLiteral("Cannot write file"),
+                QString("The selected file could not be opened for writing:\n\n"
+                        "%1\n\n"
+                        "Check that the destination folder exists and that "
+                        "the file is not currently open in another program.").arg(fn));
             return;
         }
         f << "f_GHz";
@@ -2395,6 +2420,15 @@ private:
         }
         f.close();
         setStatus("Exported: " + fn, CBStyle::GREEN);
+
+        // [T1.6] Success popup confirming the saved file path. The status
+        // bar already shows "Exported: <path>" in green; the dialog gives
+        // a stronger acknowledgement and presents the path in copy-able
+        // form for users who want to navigate to the file.
+        MessageDialog::success(
+            this,
+            QStringLiteral("Export complete"),
+            QString("CSV saved successfully to:\n\n%1").arg(fn));
     }
 
     void setStatus(const QString& msg, QColor col=CBStyle::TEXT_MUTED){

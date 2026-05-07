@@ -52,6 +52,7 @@ qt_add_executable(em-shield-designer
     ${APP_WIN_RESOURCE}
     Styles.h
     StackLayerPanel.h
+    MessageDialog.h
 )
 
 # macOS bundle icon file name (ignored on other platforms).
