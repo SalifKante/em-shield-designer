@@ -12,14 +12,108 @@
 #include <QFont>
 #include <QGraphicsDropShadowEffect>
 #include <QPropertyAnimation>
-// QSequentialAnimationGroup and QGraphicsOpacityEffect removed —
-// neither is used in this file.
 
 #include <cmath>
 
 // Phase B: Circuit Builder window
 #include "CircuitBuilderWindow.h"
 
+// ============================================================================
+//  [T2.1a] IconBadge — small painted glyph that replaces the emoji string
+//
+//  Two kinds are supported: QuickSim (a stylised lightning bolt) and
+//  CircuitBuilder (a wrench glyph). Both are drawn with pure QPainter
+//  primitives — no font glyphs, no external assets, no emoji.
+// ============================================================================
+class IconBadge : public QWidget
+{
+public:
+    enum Kind { QuickSim, CircuitBuilder };
+
+    IconBadge(Kind kind, const QColor& accent, QWidget* parent = nullptr)
+        : QWidget(parent), m_kind(kind), m_accent(accent)
+    {
+        setFixedSize(46, 46);
+        setAttribute(Qt::WA_TransparentForMouseEvents);
+        setAttribute(Qt::WA_TranslucentBackground);
+    }
+
+protected:
+    void paintEvent(QPaintEvent*) override
+    {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        if (m_kind == QuickSim) drawLightning(p);
+        else                    drawWrench  (p);
+    }
+
+private:
+    // Lightning bolt — stylised, vertical, slightly slanted
+    void drawLightning(QPainter& p)
+    {
+        const QRectF r = rect().adjusted(8, 6, -8, -6);
+        QPainterPath path;
+        path.moveTo(r.left() + r.width() * 0.65, r.top());
+        path.lineTo(r.left() + r.width() * 0.15, r.top() + r.height() * 0.55);
+        path.lineTo(r.left() + r.width() * 0.45, r.top() + r.height() * 0.55);
+        path.lineTo(r.left() + r.width() * 0.30, r.bottom());
+        path.lineTo(r.left() + r.width() * 0.85, r.top() + r.height() * 0.40);
+        path.lineTo(r.left() + r.width() * 0.55, r.top() + r.height() * 0.40);
+        path.closeSubpath();
+        p.setPen(Qt::NoPen);
+        p.setBrush(m_accent);
+        p.drawPath(path);
+    }
+
+    // Wrench — head + handle, drawn as two overlapping shapes
+    void drawWrench(QPainter& p)
+    {
+        const QRectF r = rect().adjusted(6, 6, -6, -6);
+        const qreal w = r.width();
+        const qreal h = r.height();
+
+        // Handle: rounded rect tilted 45 degrees, from lower-left to mid-upper-right
+        p.save();
+        p.translate(r.center());
+        p.rotate(-45.0);
+        QRectF handle(-w * 0.42, -w * 0.10, w * 0.85, w * 0.20);
+        p.setPen(Qt::NoPen);
+        p.setBrush(m_accent);
+        p.drawRoundedRect(handle, 4.0, 4.0);
+        p.restore();
+
+        // Open-jaw head at the upper-right end of the handle
+        const QPointF headCenter(
+            r.left() + w * 0.74,
+            r.top()  + h * 0.26);
+        const qreal headR = w * 0.22;
+
+        // Outer circle (head silhouette)
+        p.setBrush(m_accent);
+        p.drawEllipse(headCenter, headR, headR);
+
+        // Inner cut-out — opens at top-right so the wrench is recognisable
+        p.setBrush(palette().window().color());      // use the button's bg colour
+        QPainterPath jaw;
+        jaw.moveTo(headCenter.x() - headR * 0.45, headCenter.y() - headR * 0.45);
+        jaw.lineTo(headCenter.x() + headR * 0.85, headCenter.y() - headR * 0.85);
+        jaw.lineTo(headCenter.x() + headR * 0.85, headCenter.y() + headR * 0.15);
+        jaw.closeSubpath();
+        p.drawPath(jaw);
+
+        // Inner hub (small circle in the centre of the head)
+        p.setBrush(palette().window().color());
+        p.drawEllipse(headCenter, headR * 0.35, headR * 0.35);
+    }
+
+    Kind   m_kind;
+    QColor m_accent;
+};
+
+
+// ============================================================================
+//  StartupWindow
+// ============================================================================
 class StartupWindow : public QWidget
 {
     Q_OBJECT
@@ -46,11 +140,10 @@ signals:
 protected:
     void closeEvent(QCloseEvent* event) override
     {
-        emit startupClosed();          // ← tells main.cpp to quit cleanly
+        emit startupClosed();
         QWidget::closeEvent(event);
     }
 
-protected:
     void paintEvent(QPaintEvent*) override
     {
         QPainter p(this);
@@ -86,7 +179,6 @@ protected:
     }
 
 private slots:
-    // Launches CircuitBuilderWindow; hides (not destroys) StartupWindow
     void onCircuitBuilderClicked()
     {
         if (m_builderWindow) {
@@ -97,7 +189,6 @@ private slots:
 
         m_builderWindow = new CircuitBuilderWindow(nullptr);
 
-        // When the builder closes, fade the startup window back in
         connect(m_builderWindow, &QObject::destroyed, this, [this]() {
             m_builderWindow = nullptr;
             show();
@@ -118,21 +209,18 @@ private slots:
 private:
     CircuitBuilderWindow* m_builderWindow { nullptr };
 
-    // -----------------------------------------------------------------------
-    // EM wave decoration
-    // -----------------------------------------------------------------------
     void drawEMWaves(QPainter& p)
     {
         p.save();
         for (int wave = 0; wave < 3; ++wave) {
             QPainterPath path;
             const double amplitude = 15.0 + wave * 8.0;
-            const double yBase     = 130.0 + wave * 25.0;   // renamed: was 'yOffset'
+            const double yBase     = 130.0 + wave * 25.0;
             const int    alpha     = 30 - wave * 6;
             path.moveTo(0, yBase);
-            for (int wx = 0; wx <= width(); wx += 2) {      // renamed: was 'x'
+            for (int wx = 0; wx <= width(); wx += 2) {
                 double wy = yBase + amplitude *
-                                        std::sin(wx * 0.015 + wave * 1.2); // renamed: was 'y'
+                                        std::sin(wx * 0.015 + wave * 1.2);
                 path.lineTo(wx, wy);
             }
             p.setPen(QPen(QColor(59, 130, 246, alpha), 1.0));
@@ -162,16 +250,13 @@ private:
                    Qt::AlignCenter, "SE");
     }
 
-    // -----------------------------------------------------------------------
-    // UI layout
-    // -----------------------------------------------------------------------
+    // ── UI ───────────────────────────────────────────────────────────────
     void setupUI()
     {
         QVBoxLayout* mainLayout = new QVBoxLayout(this);
         mainLayout->setContentsMargins(50, 45, 50, 40);
         mainLayout->setSpacing(0);
 
-        // Title
         m_lblTitle = new QLabel("EMShieldDesigner");
         m_lblTitle->setAlignment(Qt::AlignCenter);
         m_lblTitle->setStyleSheet(
@@ -214,14 +299,16 @@ private:
         m_btnQuick = createModeButton(
             "Quick Simulation",
             "Preset configurations with\ninteractive parameter control",
-            QColor(37, 99, 235), "⚡");
+            QColor(37, 99, 235),
+            IconBadge::QuickSim);
         connect(m_btnQuick, &QPushButton::clicked,
                 this, &StartupWindow::quickSimulationClicked);
 
         m_btnBuilder = createModeButton(
             "Circuit Builder",
             "Drag & drop elements to build\ncustom equivalent circuits",
-            QColor(22, 163, 74), "🔧");
+            QColor(22, 163, 74),
+            IconBadge::CircuitBuilder);
         connect(m_btnBuilder, &QPushButton::clicked,
                 this, &StartupWindow::onCircuitBuilderClicked);
 
@@ -230,7 +317,6 @@ private:
         mainLayout->addLayout(btnLayout);
         mainLayout->addStretch(1);
 
-        // Footer
         QLabel* lblFooter = new QLabel("Electromagnetic Compatibility Research Tool");
         lblFooter->setAlignment(Qt::AlignCenter);
         lblFooter->setStyleSheet(
@@ -242,17 +328,31 @@ private:
         mainLayout->addWidget(lblFooter);
     }
 
-    QPushButton* createModeButton(const QString& title,
-                                  const QString& description,
-                                  const QColor&  accent,
-                                  const QString& icon)
+    // [T2.1a] createModeButton: the `icon` string parameter has been
+    // replaced by an IconBadge::Kind, so the mode glyph is painted by
+    // QPainter instead of being rendered as an emoji character. The
+    // rest of the button styling is unchanged from the original.
+    QPushButton* createModeButton(const QString&    title,
+                                  const QString&    description,
+                                  const QColor&     accent,
+                                  IconBadge::Kind   iconKind)
     {
         QPushButton* btn = new QPushButton;
         btn->setFixedSize(300, 150);
         btn->setCursor(Qt::PointingHandCursor);
 
         QVBoxLayout* bLayout = new QVBoxLayout(btn);
-        bLayout->setContentsMargins(16, 16, 16, 16);
+        bLayout->setContentsMargins(16, 12, 16, 16);
+        bLayout->setSpacing(4);
+
+        // Icon row — centred IconBadge instead of an emoji label
+        auto* iconRow = new QHBoxLayout;
+        iconRow->setContentsMargins(0, 0, 0, 0);
+        iconRow->addStretch(1);
+        auto* badge = new IconBadge(iconKind, accent, btn);
+        iconRow->addWidget(badge);
+        iconRow->addStretch(1);
+        bLayout->addLayout(iconRow);
 
         auto makeLabel = [](const QString& text, const QString& style,
                             QWidget* parent) -> QLabel* {
@@ -263,8 +363,6 @@ private:
             return lbl;
         };
 
-        bLayout->addWidget(makeLabel(icon,
-                                     "font-size: 30px; background: transparent;", btn));
         bLayout->addWidget(makeLabel(title,
                                      "font-size: 16px; font-weight: 700; color: #1e293b;"
                                      " font-family: 'Segoe UI', sans-serif; background: transparent;", btn));

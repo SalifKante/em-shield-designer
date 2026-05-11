@@ -150,6 +150,18 @@ inline QString brandStripText() {
                ).arg(rgb(CBStyle::TEXT_MUTED)).arg(rgb(CBStyle::ACCENT));
 }
 
+// [T2.1a] Parameterised version — lets each window pick its own suffix.
+// The "EMShield" portion stays consistent across the app; the suffix
+// identifies the active mode (Builder, QuickSim, ...).
+inline QString brandStripText(const QString& suffix) {
+    return QString(
+               "&nbsp;EM<span style='color:%1'>Shield</span>"
+               "<b style='color:%2'>%3</b>"
+               ).arg(rgb(CBStyle::TEXT_MUTED))
+        .arg(rgb(CBStyle::ACCENT))
+        .arg(suffix);
+}
+
 // ----------------------------------------------------------------------------
 //  Element button QSS — horizontal icon-on-left + text tile.
 //
@@ -298,6 +310,78 @@ inline QString primaryButtonQSS(const QColor& accent) {
         .arg(rgb(CBStyle::SURFACE))   // %4 disabled bg
         .arg(rgb(CBStyle::TEXT_DIM))  // %5 disabled text
         .arg(rgb(CBStyle::BORDER));   // %6 disabled border
+}
+
+// ----------------------------------------------------------------------------
+//  [T2.1a] Form-field styling helpers — moved here from CircuitBuilderWindow.h
+//
+//  These produce QSS strings for the three "value-bearing" form widgets used
+//  in property editors and parameter panels. Centralising them in Styles.h
+//  guarantees Window 1 (Quick Sim), Window 2 (Circuit Builder), and any
+//  future window share identical styling — no drift over time.
+//
+//  spinSS(accent) — QDoubleSpinBox / QSpinBox / QLineEdit
+//  lblSS()        — small mono labels alongside spin boxes
+//  comboSS(accent)— QComboBox dropdowns (new in 2.1a)
+// ----------------------------------------------------------------------------
+
+inline QString spinSS(QColor accent) {
+    return QString(
+               "QDoubleSpinBox,QSpinBox,QLineEdit{"
+               "background:%1;color:%2;"
+               "border:1px solid %3;border-radius:4px;padding:3px 6px;"
+               "font-family:'Courier New';font-size:11px;}"
+               "QDoubleSpinBox:focus,QSpinBox:focus,QLineEdit:focus{"
+               "border:1px solid %4;}"
+               "QDoubleSpinBox:disabled,QSpinBox:disabled,QLineEdit:disabled{"
+               "background:%5;color:%6;}"
+               )
+        .arg(rgb(CBStyle::BG))         // %1 background
+        .arg(rgb(CBStyle::TEXT))       // %2 text
+        .arg(rgb(CBStyle::BORDER))     // %3 idle border
+        .arg(rgb(accent))              // %4 focus border (accent)
+        .arg(rgb(CBStyle::SURFACE))    // %5 disabled background
+        .arg(rgb(CBStyle::TEXT_DIM));  // %6 disabled text
+}
+
+inline QString lblSS() {
+    return QString(
+               "color:%1;"
+               "background:transparent;"
+               "font-family:'Courier New';font-size:10px;"
+               ).arg(rgb(CBStyle::TEXT_MUTED));
+}
+
+inline QString comboSS(QColor accent) {
+    return QString(
+               "QComboBox{"
+               "background:%1;color:%2;"
+               "border:1px solid %3;border-radius:4px;padding:3px 6px;"
+               "font-family:'Courier New';font-size:11px;}"
+               "QComboBox:focus{border:1px solid %4;}"
+               "QComboBox::drop-down{"
+               "subcontrol-origin:padding;subcontrol-position:top right;"
+               "width:18px;border:none;}"
+               "QComboBox::down-arrow{"
+               "image:none;"
+               "border-left:4px solid transparent;"
+               "border-right:4px solid transparent;"
+               "border-top:5px solid %5;"
+               "margin-right:6px;}"
+               "QComboBox QAbstractItemView{"
+               "background:%1;color:%2;"
+               "border:1px solid %3;"
+               "selection-background-color:%6;"
+               "selection-color:white;"
+               "font-family:'Courier New';font-size:11px;"
+               "outline:0;}"
+               )
+        .arg(rgb(CBStyle::BG))         // %1 background
+        .arg(rgb(CBStyle::TEXT))       // %2 text
+        .arg(rgb(CBStyle::BORDER))     // %3 idle border
+        .arg(rgb(accent))              // %4 focus border (accent)
+        .arg(rgb(CBStyle::TEXT_MUTED)) // %5 arrow color
+        .arg(rgb(accent));             // %6 dropdown selection color
 }
 
 // ----------------------------------------------------------------------------

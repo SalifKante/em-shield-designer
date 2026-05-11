@@ -1,3 +1,9 @@
+// ============================================================================
+//  mainwindow.cpp — Quick Simulation window (Window 1)
+//
+//  [T2.1a] UI redesign — see header for full task summary.
+// ============================================================================
+
 #include "mainwindow.h"
 #include "qcustomplot.h"
 #include "CircuitCanvas.h"
@@ -7,314 +13,650 @@
 // Core engine
 #include "include/core/CircuitGenerator.h"
 
+// Unified design tokens + helpers (Window 2 has been using these since
+// Task 1.2; we now share them with Window 1).
+#include "CircuitBuilderWindow.h"   // brings in CBStyle palette + CBSTYLE_DECLARED guard
+#include "Styles.h"                 // EMStyle helpers (spinSS, lblSS, comboSS, ...)
+#include "MessageDialog.h"          // [T1.6] custom error/success dialog
+
 #include <QApplication>
 #include <QMouseEvent>
-#include <QToolBar>
-#include <QAction>
 #include <QSplitter>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
-#include <QGroupBox>
 #include <QLabel>
 #include <QDoubleSpinBox>
 #include <QSpinBox>
 #include <QComboBox>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QStatusBar>
 #include <QFileDialog>
-#include <QMessageBox>
 #include <QElapsedTimer>
 #include <QFrame>
+#include <QIcon>
 
 #include <cmath>
 #include <fstream>
 #include <iomanip>
 #include <limits>
+#include <string>
 
 using namespace EMCore;
 
 // ============================================================================
-// CONSTRUCTOR / DESTRUCTOR
+//  Constants used in this translation unit
+// ============================================================================
+namespace {
+// Width of the left-panel column. Matches the Circuit Builder convention.
+constexpr int kLeftPanelMinWidth = 260;
+constexpr int kLeftPanelMaxWidth = 320;
+} // anonymous namespace
+
+
+// ============================================================================
+//  CONSTRUCTOR / DESTRUCTOR
 // ============================================================================
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
     setAttribute(Qt::WA_QuitOnClose, false);
-    setWindowTitle("EMShieldDesigner — Shielding Effectiveness Analyser");
-    resize(1400, 750);
+    setWindowTitle("Quick Simulation — EMShieldDesigner");
+    setWindowIcon(QIcon(":/icons/emshield_256.png"));
+    resize(1400, 800);
+
+    // Window-level background — keeps the application palette unified.
+    setStyleSheet(QString(
+                      "QMainWindow{background:%1;}"
+                      "QStatusBar{background:%2;color:%3;"
+                      "font-family:'Courier New';font-size:10px;border-top:1px solid %4;}"
+                      )
+                      .arg(EMStyle::rgb(CBStyle::BG))
+                      .arg(EMStyle::rgb(CBStyle::SURFACE))
+                      .arg(EMStyle::rgb(CBStyle::TEXT_MUTED))
+                      .arg(EMStyle::rgb(CBStyle::BORDER_LT)));
 
     setupUI();
-    setupToolbar();
     setupStatusBar();
 
     // Load default preset (3-section)
     m_cboPreset->setCurrentIndex(2);
     loadPreset(3);
 
-    // Run initial analysis
+    // Run initial analysis so user sees a non-empty plot on first open.
     onComputeClicked();
 }
 
 MainWindow::~MainWindow() {}
 
+
 // ============================================================================
-// UI SETUP
+//  UI SETUP
 // ============================================================================
 
 void MainWindow::setupUI()
 {
     m_splitter = new QSplitter(Qt::Horizontal, this);
+    m_splitter->setHandleWidth(2);
     setCentralWidget(m_splitter);
 
-    // =========================================================
-    // LEFT PANEL: enclosure controls + property panel
-    // =========================================================
-    m_leftPanel = new QWidget;
-    QVBoxLayout* leftLayout = new QVBoxLayout(m_leftPanel);
-    leftLayout->setContentsMargins(6, 6, 6, 6);
-    leftLayout->setSpacing(8);
+    // ── Left side: brand strip + section stack + primary buttons ─────────
+    m_leftPanel = buildLeftPanel();
+    m_splitter->addWidget(m_leftPanel);
 
-    setupControlPanel();
-
-    leftLayout->addWidget(m_grpPresets);
-    leftLayout->addWidget(m_grpEnclosure);
-    leftLayout->addWidget(m_grpFrequency);
-
-    QFrame* sep = new QFrame;
-    sep->setFrameShape(QFrame::HLine);
-    sep->setFrameShadow(QFrame::Sunken);
-    leftLayout->addWidget(sep);
-
-    m_propertyPanel = new PropertyPanel;
-    leftLayout->addWidget(m_propertyPanel);
-
-    QPushButton* btnCompute = new QPushButton("Compute SE");
-    btnCompute->setMinimumHeight(38);
-    btnCompute->setStyleSheet(
-        "QPushButton {"
-        "  background-color: #2563eb; color: white;"
-        "  font-weight: bold; font-size: 13px;"
-        "  border-radius: 6px; border: none; }"
-        "QPushButton:hover   { background-color: #1d4ed8; }"
-        "QPushButton:pressed { background-color: #1e40af; }");
-    connect(btnCompute, &QPushButton::clicked, this, &MainWindow::onComputeClicked);
-    leftLayout->addWidget(btnCompute);
-
-    m_leftPanel->setMaximumWidth(280);
-
-    // =========================================================
-    // CENTER: circuit canvas
-    // =========================================================
+    // ── Right side: vertical split with canvas on top, plot below ────────
     m_canvas = new CircuitCanvas;
     m_canvas->setMinimumHeight(120);
 
-    // =========================================================
-    // RIGHT: SE plot
-    // =========================================================
     setupPlot();
 
-    QSplitter* rightSplitter = new QSplitter(Qt::Vertical);
-    rightSplitter->addWidget(m_canvas);
-    rightSplitter->addWidget(m_plot);
-    rightSplitter->setStretchFactor(0, 1);
-    rightSplitter->setStretchFactor(1, 3);
-    rightSplitter->setSizes({180, 520});
+    auto* rightSpl = new QSplitter(Qt::Vertical);
+    rightSpl->setHandleWidth(2);
+    rightSpl->addWidget(m_canvas);
+    rightSpl->addWidget(m_plot);
+    rightSpl->setStretchFactor(0, 1);
+    rightSpl->setStretchFactor(1, 3);
+    rightSpl->setSizes({200, 580});
+    rightSpl->setCollapsible(0, false);
+    rightSpl->setCollapsible(1, false);
 
-    m_splitter->addWidget(m_leftPanel);
-    m_splitter->addWidget(rightSplitter);
+    m_splitter->addWidget(rightSpl);
     m_splitter->setStretchFactor(0, 0);
     m_splitter->setStretchFactor(1, 1);
-    m_splitter->setSizes({270, 1130});
+    m_splitter->setSizes({kLeftPanelMinWidth + 20, 1130});
 
-    // =========================================================
-    // SIGNAL CONNECTIONS
-    // =========================================================
+    // ── Signal wiring ────────────────────────────────────────────────────
     connect(m_canvas, &CircuitCanvas::selectionChanged,
             this,     &MainWindow::onCanvasSelectionChanged);
+    connect(m_canvas, &CircuitCanvas::sectionCountChanged,
+            this,     &MainWindow::onSectionCountChanged);
 
     connect(m_propertyPanel, &PropertyPanel::dataChanged,
             this,             &MainWindow::onPropertyChanged);
 }
 
-void MainWindow::setupControlPanel()
+QWidget* MainWindow::buildLeftPanel()
 {
-    // ---- Presets ----
-    m_grpPresets = new QGroupBox("Preset");
-    QVBoxLayout* presetLayout = new QVBoxLayout;
+    // ── Container ────────────────────────────────────────────────────────
+    auto* panel = new QWidget;
+    panel->setObjectName("QuickSimLeftPanel");
+    panel->setMinimumWidth(kLeftPanelMinWidth);
+    panel->setMaximumWidth(kLeftPanelMaxWidth);
+    panel->setStyleSheet(QString(
+                             "QWidget#QuickSimLeftPanel{"
+                             "background:%1;"
+                             "border-right:1px solid %2;}"
+                             )
+                             .arg(EMStyle::rgb(CBStyle::SURFACE))
+                             .arg(EMStyle::rgb(CBStyle::BORDER)));
 
-    m_cboPreset = new QComboBox;
-    m_cboPreset->addItem("1-Section (baseline)",  1);
-    m_cboPreset->addItem("2-Section identical",   2);
-    m_cboPreset->addItem("3-Section identical",   3);
-    m_cboPreset->addItem("2-Section different",   4);
-    m_cboPreset->addItem("5-Section cascade",     5);
-    m_cboPreset->addItem("Custom (edit below)",   0);
-    connect(m_cboPreset, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, &MainWindow::onPresetChanged);
-    presetLayout->addWidget(m_cboPreset);
-    m_grpPresets->setLayout(presetLayout);
+    auto* root = new QVBoxLayout(panel);
+    root->setContentsMargins(0, 0, 0, 0);
+    root->setSpacing(0);
 
-    // ---- Enclosure ----
-    m_grpEnclosure = new QGroupBox("Enclosure");
-    QVBoxLayout* encLayout = new QVBoxLayout;
+    // ── 1. Brand strip ───────────────────────────────────────────────────
+    auto* brand = new QLabel(EMStyle::brandStripText("QuickSim"), panel);
+    brand->setStyleSheet(EMStyle::brandStripQSS());
+    brand->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    brand->setTextFormat(Qt::RichText);
+    root->addWidget(brand);
 
-    // Lambda to add a labelled spin-box row
-    auto addSpinRow = [](QVBoxLayout* layout, const QString& label,
-                         QDoubleSpinBox*& spin, double value,
-                         double mn, double mx, const QString& suffix) {
-        QHBoxLayout* row = new QHBoxLayout;
-        QLabel* lbl = new QLabel(label);
-        lbl->setMinimumWidth(90);
-        spin = new QDoubleSpinBox;
-        spin->setRange(mn, mx);
-        spin->setValue(value);
-        spin->setSuffix(suffix);
-        spin->setDecimals(1);
-        row->addWidget(lbl);
-        row->addWidget(spin);
-        layout->addLayout(row);
+    // ── Scrollable column for the section stack ──────────────────────────
+    auto* scroll = new QScrollArea(panel);
+    scroll->setWidgetResizable(true);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scroll->setStyleSheet(QString(
+                              "QScrollArea{background:%1;border:none;}"
+                              "QScrollBar:vertical{background:%1;width:10px;margin:0;}"
+                              "QScrollBar::handle:vertical{background:%2;border-radius:4px;min-height:24px;}"
+                              "QScrollBar::handle:vertical:hover{background:%3;}"
+                              "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}"
+                              )
+                              .arg(EMStyle::rgb(CBStyle::SURFACE))
+                              .arg(EMStyle::rgb(CBStyle::BORDER))
+                              .arg(EMStyle::rgb(CBStyle::TEXT_MUTED)));
+
+    auto* scrollContent = new QWidget;
+    scrollContent->setStyleSheet(QString("background:%1;")
+                                     .arg(EMStyle::rgb(CBStyle::SURFACE)));
+    auto* scrollLayout = new QVBoxLayout(scrollContent);
+    scrollLayout->setContentsMargins(10, 8, 10, 8);
+    scrollLayout->setSpacing(10);
+
+    // ── Helper: section header label ─────────────────────────────────────
+    auto makeSectionHeader = [&scrollLayout, panel](const QString& text) {
+        auto* lbl = new QLabel(text, panel);
+        lbl->setStyleSheet(EMStyle::sectionHeaderQSS());
+        scrollLayout->addWidget(lbl);
     };
 
-    addSpinRow(encLayout, "Width (a):",  m_spinA, 300.0, 10.0, 2000.0, " mm");
-    addSpinRow(encLayout, "Height (b):", m_spinB, 120.0, 1.0, 2000.0, " mm");
-    addSpinRow(encLayout, "Wall (t):",   m_spinT,   1.5,  0.1,   50.0, " mm");
-
-    // ---- Topology selector ----
+    // ── Helper: spin-row builder (label + spin in a single row) ──────────
+    //
+    // Returns the QDoubleSpinBox so the caller can store the pointer.
+    auto makeSpinRow = [&scrollLayout, panel](
+                           const QString& label,
+                           double v, double mn, double mx,
+                           double step, int decimals,
+                           const QString& suffix,
+                           QColor focusAccent) -> QDoubleSpinBox*
     {
-        QHBoxLayout* topoRow = new QHBoxLayout;
-        QLabel* lblTopo = new QLabel("Topology:");
-        lblTopo->setMinimumWidth(90);
-        m_cboTopology = new QComboBox;
-        m_cboTopology->addItem("Cascade  (Fig. 3.10)", QVariant::fromValue(int(0)));
-        m_cboTopology->addItem("Star-branch (Fig. 3.11)", QVariant::fromValue(int(1)));
-        m_cboTopology->setToolTip(
-            "CASCADE:     sections connected serially in depth.\n"
-            "STAR_BRANCH: section 1 is the spine; sections 2…N branch\n"
-            "             laterally from the spine output junction.");
-        topoRow->addWidget(lblTopo);
-        topoRow->addWidget(m_cboTopology);
-        encLayout->addLayout(topoRow);
-    }
+        auto* row = new QWidget(panel);
+        row->setStyleSheet("background:transparent;");
+        auto* lay = new QHBoxLayout(row);
+        lay->setContentsMargins(0, 0, 0, 0);
+        lay->setSpacing(8);
 
-    m_grpEnclosure->setLayout(encLayout);
+        auto* lbl = new QLabel(label, row);
+        lbl->setStyleSheet(EMStyle::lblSS());
+        lbl->setMinimumWidth(80);
+        lay->addWidget(lbl);
 
-    // ---- Frequency ----
-    m_grpFrequency = new QGroupBox("Frequency Sweep");
-    QVBoxLayout* freqLayout = new QVBoxLayout;
+        auto* spin = new QDoubleSpinBox(row);
+        spin->setLocale(QLocale::c());
+        spin->setDecimals(decimals);   // [BUGFIX-DECIMALS-ROUNDING] — set FIRST
+        spin->setRange(mn, mx);
+        spin->setValue(v);
+        spin->setSingleStep(step);
+        if (!suffix.isEmpty()) spin->setSuffix(suffix);
+        spin->setStyleSheet(EMStyle::spinSS(focusAccent));
+        lay->addWidget(spin);
 
-    // addSpinRow(freqLayout, "Start:", m_spinFstart,    1.0,   0.1, 5000.0, " MHz");
-    // addSpinRow(freqLayout, "Stop:",  m_spinFstop,  2000.0,  10.0,32000.0, " MHz");
+        scrollLayout->addWidget(row);
+        return spin;
+    };
 
-    addSpinRow(freqLayout, "Start:", m_spinFstart,    1.0,   0.1,  5000.0, " MHz");
-
-    addSpinRow(freqLayout, "Stop:",  m_spinFstop,  2000.0,  10.0, 40000.0, " MHz");
-
-
+    auto makeIntSpinRow = [&scrollLayout, panel](
+                              const QString& label,
+                              int v, int mn, int mx, int step,
+                              QColor focusAccent) -> QSpinBox*
     {
-        QHBoxLayout* ptsRow = new QHBoxLayout;
-        QLabel* lblPts = new QLabel("Points:");
-        lblPts->setMinimumWidth(90);
-        m_spinPoints = new QSpinBox;
-        m_spinPoints->setRange(2, 5000);  // Minimum 2 so endpoints are both included
-        m_spinPoints->setValue(200);
-        ptsRow->addWidget(lblPts);
-        ptsRow->addWidget(m_spinPoints);
-        freqLayout->addLayout(ptsRow);
-    }
+        auto* row = new QWidget(panel);
+        row->setStyleSheet("background:transparent;");
+        auto* lay = new QHBoxLayout(row);
+        lay->setContentsMargins(0, 0, 0, 0);
+        lay->setSpacing(8);
 
-    m_grpFrequency->setLayout(freqLayout);
+        auto* lbl = new QLabel(label, row);
+        lbl->setStyleSheet(EMStyle::lblSS());
+        lbl->setMinimumWidth(80);
+        lay->addWidget(lbl);
+
+        auto* spin = new QSpinBox(row);
+        spin->setLocale(QLocale::c());
+        spin->setRange(mn, mx);
+        spin->setValue(v);
+        spin->setSingleStep(step);
+        spin->setStyleSheet(EMStyle::spinSS(focusAccent));
+        lay->addWidget(spin);
+
+        scrollLayout->addWidget(row);
+        return spin;
+    };
+
+    // ── Helper: combo-row builder ────────────────────────────────────────
+    auto makeComboRow = [&scrollLayout, panel](
+                            const QString& label,
+                            const QStringList& items,
+                            QColor accent) -> QComboBox*
+    {
+        auto* row = new QWidget(panel);
+        row->setStyleSheet("background:transparent;");
+        auto* lay = new QHBoxLayout(row);
+        lay->setContentsMargins(0, 0, 0, 0);
+        lay->setSpacing(8);
+
+        auto* lbl = new QLabel(label, row);
+        lbl->setStyleSheet(EMStyle::lblSS());
+        lbl->setMinimumWidth(80);
+        lay->addWidget(lbl);
+
+        auto* combo = new QComboBox(row);
+        combo->addItems(items);
+        combo->setStyleSheet(EMStyle::comboSS(accent));
+        lay->addWidget(combo, /*stretch*/ 1);
+
+        scrollLayout->addWidget(row);
+        return combo;
+    };
+
+    // ── 2. PRESETS section ───────────────────────────────────────────────
+    makeSectionHeader(QStringLiteral("PRESETS"));
+
+    m_cboPreset = makeComboRow(
+        QStringLiteral("Config:"),
+        {"1-Section (baseline)",
+         "2-Section identical",
+         "3-Section identical",
+         "2-Section different",
+         "5-Section cascade",
+         "Custom (edit below)"},
+        EMStyle::accentFor(EMStyle::AccentRole::Primary));
+    m_cboPreset->setItemData(0, 1);
+    m_cboPreset->setItemData(1, 2);
+    m_cboPreset->setItemData(2, 3);
+    m_cboPreset->setItemData(3, 4);
+    m_cboPreset->setItemData(4, 5);
+    m_cboPreset->setItemData(5, 0);
+    connect(m_cboPreset, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &MainWindow::onPresetChanged);
+
+    // ── 3. ENCLOSURE section ─────────────────────────────────────────────
+    makeSectionHeader(QStringLiteral("ENCLOSURE"));
+
+    const QColor accentEnc = EMStyle::accentFor(EMStyle::AccentRole::Primary);
+    m_spinA = makeSpinRow(QStringLiteral("a [mm]:"),     300.0,  10.0, 2000.0, 1.0, 1,
+                          QStringLiteral(" mm"), accentEnc);
+    m_spinB = makeSpinRow(QStringLiteral("b [mm]:"),     120.0,   1.0, 2000.0, 1.0, 1,
+                          QStringLiteral(" mm"), accentEnc);
+    m_spinT = makeSpinRow(QStringLiteral("t [mm]:"),       1.5,   0.1,   50.0, 0.1, 2,
+                          QStringLiteral(" mm"), accentEnc);
+
+    m_cboTopology = makeComboRow(
+        QStringLiteral("Topology:"),
+        {"Cascade  (Fig. 3.10)", "Star-branch (Fig. 3.11)"},
+        accentEnc);
+    m_cboTopology->setToolTip(
+        "CASCADE:     sections connected serially in depth.\n"
+        "STAR_BRANCH: section 1 is the spine; sections 2..N branch\n"
+        "             laterally from the spine output junction.");
+    connect(m_cboTopology, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &MainWindow::onTopologyChanged);
+
+    // ── 4. FREQUENCY section ─────────────────────────────────────────────
+    makeSectionHeader(QStringLiteral("FREQUENCY SWEEP"));
+
+    m_spinFstart = makeSpinRow(QStringLiteral("Start:"),    1.0,   0.1,  5000.0, 1.0, 1,
+                               QStringLiteral(" MHz"), accentEnc);
+    m_spinFstop  = makeSpinRow(QStringLiteral("Stop:"),  2000.0,  10.0, 40000.0, 100.0, 1,
+                              QStringLiteral(" MHz"), accentEnc);
+    m_spinPoints = makeIntSpinRow(QStringLiteral("Points:"), 200, 2, 5000, 10, accentEnc);
+
+    // ── 5. SECTION PROPERTIES section (PropertyPanel goes here) ─────────
+    makeSectionHeader(QStringLiteral("SECTION PROPERTIES"));
+
+    m_propertyPanel = new PropertyPanel(scrollContent);
+    scrollLayout->addWidget(m_propertyPanel);
+
+    // ── 6. ACTIONS section ───────────────────────────────────────────────
+    makeSectionHeader(QStringLiteral("ACTIONS"));
+
+    m_btnAddSection = new QPushButton(QStringLiteral("Add Section"), scrollContent);
+    m_btnAddSection->setStyleSheet(
+        EMStyle::actionButtonQSS(EMStyle::accentFor(EMStyle::AccentRole::Neutral)));
+    m_btnAddSection->setCursor(Qt::PointingHandCursor);
+    m_btnAddSection->setShortcut(QKeySequence("Ctrl+N"));
+    m_btnAddSection->setToolTip(QStringLiteral("Add a new section (Ctrl+N)"));
+    connect(m_btnAddSection, &QPushButton::clicked, this, &MainWindow::onAddSection);
+    scrollLayout->addWidget(m_btnAddSection);
+
+    m_btnRemoveSection = new QPushButton(QStringLiteral("Remove Section"), scrollContent);
+    m_btnRemoveSection->setStyleSheet(
+        EMStyle::actionButtonQSS(EMStyle::accentFor(EMStyle::AccentRole::Neutral)));
+    m_btnRemoveSection->setCursor(Qt::PointingHandCursor);
+    m_btnRemoveSection->setShortcut(QKeySequence("Delete"));
+    m_btnRemoveSection->setToolTip(QStringLiteral("Remove selected section (Delete)"));
+    connect(m_btnRemoveSection, &QPushButton::clicked, this, &MainWindow::onRemoveSection);
+    scrollLayout->addWidget(m_btnRemoveSection);
+
+    scrollLayout->addStretch(1);
+
+    scroll->setWidget(scrollContent);
+    root->addWidget(scroll, /*stretch*/ 1);
+
+    // ── 7. PRIMARY action row (Compute + Export, always pinned to bottom) ─
+    auto* primary = new QWidget(panel);
+    primary->setStyleSheet(QString(
+                               "background:%1;border-top:1px solid %2;"
+                               )
+                               .arg(EMStyle::rgb(CBStyle::SURFACE))
+                               .arg(EMStyle::rgb(CBStyle::BORDER_LT)));
+
+    auto* primaryLayout = new QVBoxLayout(primary);
+    primaryLayout->setContentsMargins(10, 8, 10, 12);
+    primaryLayout->setSpacing(6);
+
+    // [T2.1a] Validity indicator row — same pattern as Window 2 (Task 1.5b).
+    m_validityRow = new QWidget(primary);
+    m_validityRow->setObjectName("ValidityRow");
+    m_validityRow->setStyleSheet(
+        "QWidget#ValidityRow{background:transparent;}");
+    auto* validityLayout = new QHBoxLayout(m_validityRow);
+    validityLayout->setContentsMargins(2, 2, 2, 2);
+    validityLayout->setSpacing(8);
+
+    m_validityDot = new QFrame(m_validityRow);
+    m_validityDot->setFrameShape(QFrame::NoFrame);
+    validityLayout->addWidget(m_validityDot);
+
+    m_validityLabel = new QLabel(QStringLiteral("Checking..."), m_validityRow);
+    validityLayout->addWidget(m_validityLabel, /*stretch*/ 1);
+
+    primaryLayout->addWidget(m_validityRow);
+
+    m_btnCompute = new QPushButton(QStringLiteral("COMPUTE"), primary);
+    m_btnCompute->setMinimumHeight(38);
+    m_btnCompute->setStyleSheet(
+        EMStyle::primaryButtonQSS(EMStyle::accentFor(EMStyle::AccentRole::Primary)));
+    m_btnCompute->setCursor(Qt::PointingHandCursor);
+    m_btnCompute->setShortcut(QKeySequence("Ctrl+R"));
+    m_btnCompute->setToolTip(QStringLiteral("Run shielding analysis (Ctrl+R)"));
+    connect(m_btnCompute, &QPushButton::clicked, this, &MainWindow::onComputeClicked);
+    primaryLayout->addWidget(m_btnCompute);
+
+    m_btnExport = new QPushButton(QStringLiteral("Export CSV"), primary);
+    m_btnExport->setStyleSheet(
+        EMStyle::actionButtonQSS(EMStyle::accentFor(EMStyle::AccentRole::Neutral)));
+    m_btnExport->setCursor(Qt::PointingHandCursor);
+    m_btnExport->setShortcut(QKeySequence("Ctrl+S"));
+    m_btnExport->setToolTip(QStringLiteral("Export results to CSV (Ctrl+S)"));
+    connect(m_btnExport, &QPushButton::clicked, this, &MainWindow::onExportCSV);
+    primaryLayout->addWidget(m_btnExport);
+
+    root->addWidget(primary);
+
+    // ── Live validity re-evaluation: any parameter change triggers refresh
+    //    via the central spin/combo signals. PropertyPanel and CircuitCanvas
+    //    are wired in setupUI() to also trigger refresh through their slots.
+    auto refresh = [this]{ refreshValidityIndicator(); };
+    connect(m_spinA,      QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, refresh);
+    connect(m_spinB,      QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, refresh);
+    connect(m_spinT,      QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, refresh);
+    connect(m_spinFstart, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, refresh);
+    connect(m_spinFstop,  QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, refresh);
+    connect(m_spinPoints, QOverload<int>::of   (&QSpinBox::valueChanged),       this, refresh);
+
+    return panel;
 }
 
 void MainWindow::setupPlot()
 {
     m_plot = new QCustomPlot;
 
+    // [T2.1a] Plot styling aligned with Window 2 (Circuit Builder).
+    m_plot->setBackground(QBrush(CBStyle::BG));
+
     // Title
     m_plot->plotLayout()->insertRow(0);
     auto* title = new QCPTextElement(
-        m_plot, "Shielding Effectiveness vs Frequency",
-        QFont("sans-serif", 12, QFont::Bold));
+        m_plot,
+        QStringLiteral("Quick Simulation — Shielding Effectiveness"),
+        QFont("Segoe UI", 11, QFont::Bold));
+    title->setTextColor(CBStyle::TEXT);
     m_plot->plotLayout()->addElement(0, 0, title);
 
     // Axes
-    m_plot->xAxis->setLabel("Frequency [GHz]");
-    m_plot->yAxis->setLabel("SE [dB]");
+    m_plot->xAxis->setLabel(QStringLiteral("Frequency [GHz]"));
+    m_plot->yAxis->setLabel(QStringLiteral("SE [dB]"));
+    m_plot->xAxis->setLabelFont(QFont("Segoe UI", 9));
+    m_plot->yAxis->setLabelFont(QFont("Segoe UI", 9));
+    m_plot->xAxis->setTickLabelFont(QFont("Segoe UI", 8));
+    m_plot->yAxis->setTickLabelFont(QFont("Segoe UI", 8));
+    m_plot->xAxis->setLabelColor(CBStyle::TEXT);
+    m_plot->yAxis->setLabelColor(CBStyle::TEXT);
+    m_plot->xAxis->setTickLabelColor(CBStyle::TEXT_MUTED);
+    m_plot->yAxis->setTickLabelColor(CBStyle::TEXT_MUTED);
+    m_plot->xAxis->setBasePen(QPen(CBStyle::BORDER));
+    m_plot->yAxis->setBasePen(QPen(CBStyle::BORDER));
+    m_plot->xAxis->setTickPen(QPen(CBStyle::BORDER));
+    m_plot->yAxis->setTickPen(QPen(CBStyle::BORDER));
+    m_plot->xAxis->setSubTickPen(QPen(CBStyle::BORDER_LT));
+    m_plot->yAxis->setSubTickPen(QPen(CBStyle::BORDER_LT));
     m_plot->xAxis->setRange(0.0, 2.0);
     m_plot->yAxis->setRange(-40.0, 100.0);
 
     // Grid
     m_plot->xAxis->grid()->setSubGridVisible(true);
     m_plot->yAxis->grid()->setSubGridVisible(true);
-    QPen gridPen(QColor(200, 200, 200));
+    QPen gridPen(CBStyle::BORDER_LT);
     gridPen.setStyle(Qt::DashLine);
     m_plot->xAxis->grid()->setPen(gridPen);
     m_plot->yAxis->grid()->setPen(gridPen);
-    QPen subGridPen(QColor(230, 230, 230));
+    QPen subGridPen(CBStyle::BORDER_LT);
     subGridPen.setStyle(Qt::DotLine);
     m_plot->xAxis->grid()->setSubGridPen(subGridPen);
     m_plot->yAxis->grid()->setSubGridPen(subGridPen);
 
     // Legend
     m_plot->legend->setVisible(true);
-    m_plot->legend->setFont(QFont("sans-serif", 9));
-    m_plot->legend->setBrush(QBrush(QColor(255, 255, 255, 200)));
+    m_plot->legend->setFont(QFont("Segoe UI", 9));
+    m_plot->legend->setBrush(QBrush(QColor(255, 255, 255, 220)));
+    m_plot->legend->setBorderPen(QPen(CBStyle::BORDER));
     m_plot->axisRect()->insetLayout()->setInsetAlignment(
         0, Qt::AlignTop | Qt::AlignRight);
 
-    // Interactions: drag, zoom, select — plus mouse-click readout
+    // Interactions
     m_plot->setInteractions(QCP::iRangeDrag    | QCP::iRangeZoom |
                             QCP::iSelectPlottables | QCP::iSelectLegend);
 
-    // Connect click signal for interactive SE readout
     connect(m_plot, &QCustomPlot::mousePress,
             this,   &MainWindow::onPlotClicked);
 }
 
-void MainWindow::setupToolbar()
-{
-    m_toolbar = addToolBar("Main");
-    m_toolbar->setMovable(false);
-    m_toolbar->setIconSize(QSize(20, 20));
-
-    m_actAddSection = m_toolbar->addAction("+ Section");
-    m_actAddSection->setShortcut(QKeySequence("Ctrl+N"));
-    m_actAddSection->setToolTip("Add a new section (Ctrl+N)");
-    connect(m_actAddSection, &QAction::triggered, this, &MainWindow::onAddSection);
-
-    m_actRemoveSection = m_toolbar->addAction("- Section");
-    m_actRemoveSection->setShortcut(QKeySequence("Delete"));
-    m_actRemoveSection->setToolTip("Remove selected section (Delete)");
-    connect(m_actRemoveSection, &QAction::triggered, this, &MainWindow::onRemoveSection);
-
-    m_toolbar->addSeparator();
-
-    m_actCompute = m_toolbar->addAction("Compute");
-    m_actCompute->setShortcut(QKeySequence("Ctrl+R"));
-    m_actCompute->setToolTip("Run shielding analysis (Ctrl+R)");
-    connect(m_actCompute, &QAction::triggered, this, &MainWindow::onComputeClicked);
-
-    m_toolbar->addSeparator();
-
-    m_actExport = m_toolbar->addAction("Export CSV");
-    m_actExport->setShortcut(QKeySequence("Ctrl+S"));
-    m_actExport->setToolTip("Export results to CSV (Ctrl+S)");
-    connect(m_actExport, &QAction::triggered, this, &MainWindow::onExportCSV);
-}
-
 void MainWindow::setupStatusBar()
 {
-    m_lblStatus = new QLabel("Ready");
+    m_lblStatus = new QLabel(QStringLiteral("Ready"));
+    m_lblStatus->setStyleSheet(QString("color:%1;background:transparent;")
+                                   .arg(EMStyle::rgb(CBStyle::TEXT_MUTED)));
     statusBar()->addWidget(m_lblStatus, 1);
 }
 
+
 // ============================================================================
-// PRESET HANDLING
+//  STATUS BAR HELPER
+// ============================================================================
+
+void MainWindow::setStatus(const QString& msg, const QColor& col)
+{
+    m_lblStatus->setText(msg);
+    m_lblStatus->setStyleSheet(QString("color:rgb(%1,%2,%3);background:transparent;"
+                                       "font-family:'Courier New';font-size:10px;")
+                                   .arg(col.red()).arg(col.green()).arg(col.blue()));
+}
+
+
+// ============================================================================
+//  [T2.1a] VALIDITY INDICATOR
+// ============================================================================
+//
+// We evaluate two layers of correctness:
+//   1. enclosure-level: are global a/b/t valid? is the frequency span sensible?
+//   2. config-level:    EnclosureConfig::isValid (combines enclosure + sections)
+//
+// EnclosureConfig::isValid (declared in CircuitGenerator.h) does both — it
+// already checks a, b, t, source impedance, section count, and per-section
+// fields. So a single call answers everything.
+
+namespace {
+EnclosureConfig snapshotConfigFromUI(const QDoubleSpinBox* spinA,
+                                     const QDoubleSpinBox* spinB,
+                                     const QDoubleSpinBox* spinT,
+                                     const QComboBox*      cboTopology,
+                                     CircuitCanvas*        canvas)
+{
+    EnclosureConfig cfg;
+    cfg.a = spinA->value() / 1000.0;
+    cfg.b = spinB->value() / 1000.0;
+    cfg.t = spinT->value() / 1000.0;
+    cfg.topology = (cboTopology->currentIndex() == 1)
+                       ? TopologyType::STAR_BRANCH
+                       : TopologyType::CASCADE;
+
+    const QVector<SectionItemData> sd = canvas->allSectionData();
+    cfg.sections.reserve(sd.size());
+    for (const auto& s : sd) {
+        SectionConfig sec;
+        sec.depth           = s.depth_mm        / 1000.0;
+        sec.obs_position    = s.obs_position_mm / 1000.0;
+        sec.has_observation = s.has_observation;
+        sec.section_width_a = (s.section_width_a_mm > 0.0)
+                                  ? s.section_width_a_mm / 1000.0
+                                  : -1.0;
+        sec.aperture_l      = s.aperture_l_mm   / 1000.0;
+        sec.aperture_w      = s.aperture_w_mm   / 1000.0;
+        sec.has_cover       = s.has_cover;
+        sec.cover_gap       = s.cover_gap_mm    / 1000.0;
+        sec.cover_eps_r     = s.cover_eps_r;
+        sec.has_dielectric  = s.has_dielectric;
+        sec.dielectric_h    = s.dielectric_h_mm / 1000.0;
+        sec.dielectric_er   = s.dielectric_er;
+        cfg.sections.push_back(sec);
+    }
+    return cfg;
+}
+} // namespace
+
+
+void MainWindow::setValidityState(bool ok, const QString& brief, const QString& full)
+{
+    const QColor dotColor = ok ? CBStyle::GREEN : CBStyle::RED;
+    m_validityDot->setStyleSheet(QString(
+                                     "QFrame{"
+                                     "background:%1;border-radius:6px;"
+                                     "min-width:12px;max-width:12px;"
+                                     "min-height:12px;max-height:12px;}"
+                                     ).arg(EMStyle::rgb(dotColor)));
+
+    m_validityLabel->setText(brief);
+    m_validityLabel->setStyleSheet(QString(
+                                       "QLabel{"
+                                       "color:%1;background:transparent;"
+                                       "font-family:'Courier New';font-size:10px;font-weight:bold;"
+                                       "letter-spacing:1px;}"
+                                       ).arg(EMStyle::rgb(dotColor)));
+
+    m_validityRow->setToolTip(full);
+}
+
+
+void MainWindow::refreshValidityIndicator()
+{
+    if (!m_validityDot || !m_validityLabel) return;
+
+    // Frequency span check happens before EnclosureConfig::isValid because
+    // isValid doesn't know about the frequency sweep. f_stop must exceed
+    // f_start, and the user-set number of points must be at least 2 (the
+    // sweep linspace formula needs n>=2 for both endpoints to be included).
+    const double fstart = m_spinFstart->value();
+    const double fstop  = m_spinFstop->value();
+    const int    npts   = m_spinPoints->value();
+    if (fstop <= fstart) {
+        setValidityState(false,
+                         QStringLiteral("Bad frequency span"),
+                         QStringLiteral("Frequency stop must be greater than frequency start.\n\n"
+                                        "Increase the Stop value or decrease the Start value."));
+        return;
+    }
+    if (npts < 2) {
+        setValidityState(false,
+                         QStringLiteral("Too few points"),
+                         QStringLiteral("Frequency sweep needs at least 2 points so both endpoints "
+                                        "are included in the linspace."));
+        return;
+    }
+
+    // Config-level validation via the engine. This catches:
+    //   - a, b, t out of range
+    //   - no sections at all
+    //   - STAR_BRANCH with fewer than 2 sections
+    //   - per-section issues (obs_position outside (0, depth), aperture
+    //     dimensions, cover/dielectric parameters)
+    const EnclosureConfig cfg = snapshotConfigFromUI(
+        m_spinA, m_spinB, m_spinT, m_cboTopology, m_canvas);
+
+    std::string err;
+    if (!cfg.isValid(err)) {
+        const QString errQ = QString::fromStdString(err);
+
+        // Extract a short, leading phrase for the indicator row.
+        QString brief = errQ;
+        const int colon = brief.indexOf(':');
+        if (colon > 0 && colon < 30) brief.truncate(colon);
+        if (brief.length() > 32) {
+            brief = brief.left(29) + QStringLiteral("...");
+        }
+
+        const QString full = QStringLiteral(
+                                 "Configuration is not valid for analysis:\n\n%1\n\n"
+                                 "Fix the highlighted condition, then COMPUTE will be safe to run.")
+                                 .arg(errQ);
+        setValidityState(false, brief, full);
+        return;
+    }
+
+    setValidityState(true,
+                     QStringLiteral("Circuit valid"),
+                     QStringLiteral("Configuration is valid. Click COMPUTE to run the sweep."));
+}
+
+
+// ============================================================================
+//  PRESET HANDLING
 // ============================================================================
 
 void MainWindow::onPresetChanged(int index)
 {
-    int presetId = m_cboPreset->itemData(index).toInt();
+    const int presetId = m_cboPreset->itemData(index).toInt();
     if (presetId > 0) loadPreset(presetId);
 }
 
@@ -359,19 +701,37 @@ void MainWindow::loadPreset(int presetId)
     }
 
     m_canvas->loadPreset(sections);
+    refreshValidityIndicator();
 }
 
+
 // ============================================================================
-// SECTION ADD / REMOVE
+//  TOPOLOGY CHANGE
+// ============================================================================
+
+void MainWindow::onTopologyChanged(int index)
+{
+    // Forward to the canvas so it can recolour / relabel nodes per Fig 3.10
+    // vs Fig 3.11. CircuitCanvas::setTopology re-runs layoutSections().
+    const TopologyType t = (index == 1)
+                               ? TopologyType::STAR_BRANCH
+                               : TopologyType::CASCADE;
+    m_canvas->setTopology(t);
+    refreshValidityIndicator();
+}
+
+
+// ============================================================================
+//  SECTION ADD / REMOVE
 // ============================================================================
 
 void MainWindow::onAddSection()
 {
     SectionItemData newSec;
-    newSec.depth_mm = 300;
+    newSec.depth_mm        = 300;
     newSec.obs_position_mm = 150;
-    newSec.aperture_l_mm = 80;
-    newSec.aperture_w_mm = 80;
+    newSec.aperture_l_mm   = 80;
+    newSec.aperture_w_mm   = 80;
 
     m_canvas->addSection(newSec);
     m_canvas->selectSection(m_canvas->sectionCount() - 1);
@@ -380,15 +740,15 @@ void MainWindow::onAddSection()
     m_cboPreset->setCurrentIndex(m_cboPreset->count() - 1);
     m_cboPreset->blockSignals(false);
 
-    m_lblStatus->setText(
-        QString("Added section %1 — click Compute to update")
-            .arg(m_canvas->sectionCount()));
+    setStatus(QString("Added section %1 — click Compute to update")
+                  .arg(m_canvas->sectionCount()),
+              CBStyle::TEXT_MUTED);
 }
 
 void MainWindow::onRemoveSection()
 {
     if (m_canvas->sectionCount() <= 1) {
-        m_lblStatus->setText("Cannot remove the last section");
+        setStatus(QStringLiteral("Cannot remove the last section"), CBStyle::RED);
         return;
     }
     m_canvas->removeSelectedSection();
@@ -397,13 +757,14 @@ void MainWindow::onRemoveSection()
     m_cboPreset->setCurrentIndex(m_cboPreset->count() - 1);
     m_cboPreset->blockSignals(false);
 
-    m_lblStatus->setText(
-        QString("%1 sections remaining — click Compute to update")
-            .arg(m_canvas->sectionCount()));
+    setStatus(QString("%1 sections remaining — click Compute to update")
+                  .arg(m_canvas->sectionCount()),
+              CBStyle::TEXT_MUTED);
 }
 
+
 // ============================================================================
-// CANVAS ↔ PROPERTY PANEL
+//  CANVAS / PROPERTY PANEL EVENT HANDLERS
 // ============================================================================
 
 void MainWindow::onCanvasSelectionChanged(int sectionIndex)
@@ -425,26 +786,45 @@ void MainWindow::onPropertyChanged(int sectionIndex, const SectionItemData& data
         m_cboPreset->setCurrentIndex(m_cboPreset->count() - 1);
         m_cboPreset->blockSignals(false);
     }
+    refreshValidityIndicator();
 }
 
+void MainWindow::onSectionCountChanged(int /*count*/)
+{
+    refreshValidityIndicator();
+}
+
+
 // ============================================================================
-// EXPORT
+//  EXPORT
 // ============================================================================
 
 void MainWindow::onExportCSV()
 {
     if (m_freqs.isEmpty()) {
-        QMessageBox::warning(this, "No Data", "Run an analysis first.");
+        MessageDialog::error(this,
+                             QStringLiteral("No data to export"),
+                             QStringLiteral(
+                                 "There is no computed SE data to export.\n\n"
+                                 "Click COMPUTE first to populate the plot, then "
+                                 "use Export CSV to save the results."));
         return;
     }
 
-    QString filename = QFileDialog::getSaveFileName(
-        this, "Export CSV", "SE_results.csv", "CSV Files (*.csv)");
+    const QString filename = QFileDialog::getSaveFileName(
+        this, QStringLiteral("Export CSV"),
+        QStringLiteral("SE_results.csv"),
+        QStringLiteral("CSV Files (*.csv)"));
     if (filename.isEmpty()) return;
 
     std::ofstream file(filename.toStdString());
     if (!file.is_open()) {
-        QMessageBox::critical(this, "Error", "Could not open file for writing.");
+        MessageDialog::error(this,
+                             QStringLiteral("Cannot write file"),
+                             QString("The selected file could not be opened for writing:\n\n"
+                                     "%1\n\n"
+                                     "Check that the destination folder exists and that "
+                                     "the file is not currently open in another program.").arg(filename));
         return;
     }
 
@@ -464,46 +844,59 @@ void MainWindow::onExportCSV()
     }
     file.close();
 
-    m_lblStatus->setText("Exported: " + filename);
+    setStatus(QStringLiteral("Exported: ") + filename, CBStyle::GREEN);
+
+    MessageDialog::success(this,
+                           QStringLiteral("Export complete"),
+                           QString("CSV saved successfully to:\n\n%1").arg(filename));
 }
 
+
 // ============================================================================
-// ANALYSIS ENGINE
+//  ANALYSIS ENGINE
 // ============================================================================
 
 void MainWindow::onComputeClicked() { runAnalysis(); }
+
+void MainWindow::clearPlot()
+{
+    m_plot->clearPlottables();
+    m_plot->clearItems();
+    m_crosshairLine = nullptr;
+    m_readoutLabel  = nullptr;
+    m_tracers.clear();
+    m_plot->replot();
+}
 
 void MainWindow::runAnalysis()
 {
     QElapsedTimer timer;
     timer.start();
 
-    // -----------------------------------------------------------------------
     // 1. Read enclosure parameters from UI
-    // -----------------------------------------------------------------------
-    const double a       = m_spinA->value()      / 1000.0;   // mm → m
+    const double a       = m_spinA->value()      / 1000.0;
     const double b       = m_spinB->value()      / 1000.0;
     const double t       = m_spinT->value()      / 1000.0;
-    const double f_start = m_spinFstart->value() * 1e6;      // MHz → Hz
+    const double f_start = m_spinFstart->value() * 1e6;
     const double f_stop  = m_spinFstop->value()  * 1e6;
     const int    n_pts   = m_spinPoints->value();
 
-    // -----------------------------------------------------------------------
     // 2. Build EnclosureConfig from canvas sections
-    // -----------------------------------------------------------------------
     EnclosureConfig cfg;
     cfg.a = a;
     cfg.b = b;
     cfg.t = t;
-
-    // Topology from selector
     cfg.topology = (m_cboTopology->currentIndex() == 1)
                        ? TopologyType::STAR_BRANCH
                        : TopologyType::CASCADE;
 
     const QVector<SectionItemData> sectionData = m_canvas->allSectionData();
     if (sectionData.isEmpty()) {
-        m_lblStatus->setText("No sections defined");
+        MessageDialog::error(this,
+                             QStringLiteral("No sections"),
+                             QStringLiteral("The canvas has no sections.\n\n"
+                                            "Use Add Section or load a preset, then click COMPUTE."));
+        setStatus(QStringLiteral("No sections defined"), CBStyle::RED);
         return;
     }
 
@@ -512,57 +905,58 @@ void MainWindow::runAnalysis()
         sec.depth           = sd.depth_mm          / 1000.0;
         sec.obs_position    = sd.obs_position_mm   / 1000.0;
         sec.has_observation = sd.has_observation;
+        sec.section_width_a = (sd.section_width_a_mm > 0.0)
+                                  ? sd.section_width_a_mm / 1000.0
+                                  : -1.0;
         sec.aperture_l      = sd.aperture_l_mm     / 1000.0;
         sec.aperture_w      = sd.aperture_w_mm     / 1000.0;
         sec.has_cover       = sd.has_cover;
         sec.cover_gap       = sd.cover_gap_mm      / 1000.0;
-        sec.cover_eps_r     = sd.cover_eps_r;         // Eq. (3.24) dielectric gap
+        sec.cover_eps_r     = sd.cover_eps_r;
         sec.has_dielectric  = sd.has_dielectric;
         sec.dielectric_h    = sd.dielectric_h_mm   / 1000.0;
         sec.dielectric_er   = sd.dielectric_er;
         cfg.sections.push_back(sec);
     }
 
-    // -----------------------------------------------------------------------
     // 3. Validate configuration
-    // -----------------------------------------------------------------------
     std::string error_msg;
     if (!cfg.isValid(error_msg)) {
-        QMessageBox::warning(this, "Invalid Configuration",
+        MessageDialog::error(this,
+                             QStringLiteral("Invalid configuration"),
                              QString::fromStdString(error_msg));
+        setStatus(QStringLiteral("Cannot compute — invalid configuration"), CBStyle::RED);
         return;
     }
 
-    m_lblStatus->setText("Computing…");
+    setStatus(QStringLiteral("Computing..."), CBStyle::TEXT_MUTED);
     QApplication::processEvents();
 
-    // -----------------------------------------------------------------------
     // 4. Generate circuit
-    // -----------------------------------------------------------------------
     MNASolver solver;
     std::vector<ObservationPoint> obs_points;
     try {
         obs_points = CircuitGenerator::generate(cfg, solver, false);
     } catch (const std::exception& e) {
-        QMessageBox::critical(this, "Circuit Error",
-                              "Circuit generation failed:\n" + QString::fromStdString(e.what()));
+        MessageDialog::error(this,
+                             QStringLiteral("Circuit generation failed"),
+                             QString::fromStdString(e.what()));
+        setStatus(QStringLiteral("Circuit generation failed"), CBStyle::RED);
         return;
     }
 
     if (obs_points.empty()) {
-        QMessageBox::warning(this, "No Observation Points",
-                             "No sections have 'has_observation' enabled.");
+        MessageDialog::error(this,
+                             QStringLiteral("No observation points"),
+                             QStringLiteral(
+                                 "No sections have 'Has observation point' enabled.\n\n"
+                                 "Enable at least one section's observation in the SECTION "
+                                 "PROPERTIES panel, then COMPUTE again."));
+        setStatus(QStringLiteral("No observation points"), CBStyle::RED);
         return;
     }
 
-    // -----------------------------------------------------------------------
-    // 5. Frequency sweep — inclusive linspace: f_start … f_stop (n_pts points)
-    //
-    //    Using (n_pts - 1) as the divisor ensures both f_start and f_stop
-    //    are exactly included in the sweep.  With the old formula
-    //    fstep = (f_stop - f_start) / n_pts, the last point fell
-    //    one step short of f_stop.
-    // -----------------------------------------------------------------------
+    // 5. Frequency sweep — inclusive linspace
     const double fstep = (n_pts > 1)
                              ? (f_stop - f_start) / static_cast<double>(n_pts - 1)
                              : 0.0;
@@ -580,20 +974,12 @@ void MainWindow::runAnalysis()
         const double f = f_start + i * fstep;
         freqs_GHz.append(f / 1e9);
 
-        // Wrap each frequency point — catches near-resonance singularities
-        // without aborting the entire sweep.
         try {
-            // CORRECTED: cfg is passed as required by Eq. (3.8) so that
-            // V₀ = cfg.V_source is used in SE = −20·log₁₀(|2·U_obs/V₀|).
             const auto SE_vals =
                 CircuitGenerator::computeSE(solver, obs_points, cfg, f);
-
             for (std::size_t oi = 0; oi < obs_points.size(); ++oi)
                 SE_curves[static_cast<int>(oi)].append(SE_vals[oi]);
-
         } catch (const std::exception& e) {
-            // Frequency point failed (e.g. singular matrix at resonance).
-            // Insert NaN so QCustomPlot produces a gap rather than a spike.
             std::cerr << "[MainWindow] sweep error at f="
                       << f / 1e9 << " GHz: " << e.what() << "\n";
             for (auto& c : SE_curves)
@@ -603,23 +989,16 @@ void MainWindow::runAnalysis()
 
     const qint64 elapsed = timer.elapsed();
 
-    // -----------------------------------------------------------------------
-    // 6. Store results for export and interactive readout
-    // -----------------------------------------------------------------------
+    // 6. Store results
     m_freqs   = freqs_GHz;
     m_SE_data = SE_curves;
     m_labels  = labels;
 
-    // -----------------------------------------------------------------------
     // 7. Plot
-    // -----------------------------------------------------------------------
     plotResults(freqs_GHz, SE_curves, labels);
 
-    // -----------------------------------------------------------------------
-    // 8. Status bar — use solver's actual node count (correct for both
-    //    CASCADE and STAR_BRANCH topologies)
-    // -----------------------------------------------------------------------
-    m_lblStatus->setText(
+    // 8. Status bar
+    setStatus(
         QString("%1-section %2 | %3 branches, %4 nodes, %5 obs pts | "
                 "%6 points in %7 ms")
             .arg(static_cast<int>(cfg.sections.size()))
@@ -628,11 +1007,13 @@ void MainWindow::runAnalysis()
             .arg(solver.getNumNodes())
             .arg(static_cast<int>(obs_points.size()))
             .arg(n_pts)
-            .arg(elapsed));
+            .arg(elapsed),
+        CBStyle::GREEN);
 }
 
+
 // ============================================================================
-// PLOTTING
+//  PLOTTING
 // ============================================================================
 
 void MainWindow::plotResults(const QVector<double>&          freqs_GHz,
@@ -641,21 +1022,21 @@ void MainWindow::plotResults(const QVector<double>&          freqs_GHz,
 {
     m_plot->clearPlottables();
     m_plot->clearItems();
-
-    // Reset overlay pointers (clearItems() deleted them)
     m_crosshairLine = nullptr;
     m_readoutLabel  = nullptr;
     m_tracers.clear();
 
+    // Curve colours — same palette as Window 2 plus a few extras for
+    // multi-observation circuits.
     static const QVector<QColor> colors = {
-        { 37,  99, 235},   // Blue
-        {220,  38,  38},   // Red
-        { 22, 163,  74},   // Green
-        {217, 119,   6},   // Amber
-        {147,  51, 234},   // Purple
-        { 14, 165, 233},   // Sky
-        {244,  63,  94},   // Rose
-        { 34, 197,  94},   // Emerald
+        CBStyle::ACCENT,                // #0E64C8 blue
+        CBStyle::RED,                   // #C31E1E
+        CBStyle::GREEN,                 // #168240
+        CBStyle::ORANGE,                // #B45A00
+        QColor(147,  51, 234),
+        QColor( 14, 165, 233),
+        QColor(244,  63,  94),
+        QColor( 34, 197,  94),
     };
 
     double ymin =  std::numeric_limits<double>::infinity();
@@ -665,13 +1046,11 @@ void MainWindow::plotResults(const QVector<double>&          freqs_GHz,
         QCPGraph* graph = m_plot->addGraph();
         graph->setData(freqs_GHz, SE_curves[c]);
         graph->setName(labels.value(c, QString("P%1").arg(c + 1)));
-
         QPen pen(colors[c % colors.size()]);
         pen.setWidth(2);
         graph->setPen(pen);
         graph->setSelectable(QCP::stWhole);
 
-        // NaN values produce automatic gaps in QCustomPlot
         for (double v : SE_curves[c]) {
             if (std::isfinite(v)) {
                 ymin = std::min(ymin, v);
@@ -680,10 +1059,8 @@ void MainWindow::plotResults(const QVector<double>&          freqs_GHz,
         }
     }
 
-    // Auto-range axes
-    if (!freqs_GHz.isEmpty()) {
+    if (!freqs_GHz.isEmpty())
         m_plot->xAxis->setRange(freqs_GHz.first(), freqs_GHz.last());
-    }
     if (std::isfinite(ymin) && std::isfinite(ymax)) {
         const double yrange = std::max(ymax - ymin, 1.0);
         m_plot->yAxis->setRange(ymin - 0.1 * yrange, ymax + 0.1 * yrange);
@@ -693,101 +1070,74 @@ void MainWindow::plotResults(const QVector<double>&          freqs_GHz,
     auto* zeroLine = new QCPItemStraightLine(m_plot);
     zeroLine->point1->setCoords(0.0, 0.0);
     zeroLine->point2->setCoords(1.0, 0.0);
-    QPen zeroPen(QColor(128, 128, 128, 150));
+    QPen zeroPen(CBStyle::BORDER);
     zeroPen.setStyle(Qt::DashLine);
     zeroLine->setPen(zeroPen);
 
-    // Create interactive overlay items (crosshair, tracers, readout)
     setupPlotInteractiveItems();
 
     m_plot->replot();
 }
 
-// ============================================================================
-// INTERACTIVE PLOT OVERLAY ITEMS
-// ============================================================================
-// Called at the end of every plotResults() to create the overlay items that
-// support the click-to-read-SE feature.  All items start invisible; they
-// become visible on the first user click.
-
 void MainWindow::setupPlotInteractiveItems()
 {
-    // -----------------------------------------------------------------------
-    // Vertical crosshair line
-    // -----------------------------------------------------------------------
+    // Vertical crosshair
     m_crosshairLine = new QCPItemLine(m_plot);
-    QPen chPen(QColor(80, 80, 80, 200));
+    QPen chPen(CBStyle::TEXT_MUTED);
     chPen.setStyle(Qt::DashLine);
     chPen.setWidth(1);
     m_crosshairLine->setPen(chPen);
-    // Use axis-coordinate anchors so the line stretches to plot edges
     m_crosshairLine->start->setType(QCPItemPosition::ptPlotCoords);
     m_crosshairLine->end->setType(QCPItemPosition::ptPlotCoords);
     m_crosshairLine->setVisible(false);
 
-    // -----------------------------------------------------------------------
-    // SE readout label (styled text box)
-    // -----------------------------------------------------------------------
+    // SE readout label
     m_readoutLabel = new QCPItemText(m_plot);
     m_readoutLabel->setPositionAlignment(Qt::AlignLeft | Qt::AlignTop);
     m_readoutLabel->position->setType(QCPItemPosition::ptPlotCoords);
     m_readoutLabel->setFont(QFont("Courier New", 9));
-    m_readoutLabel->setColor(Qt::black);
+    m_readoutLabel->setColor(CBStyle::TEXT);
     m_readoutLabel->setPadding(QMargins(6, 4, 6, 4));
-    m_readoutLabel->setBrush(QBrush(QColor(255, 255, 240, 230)));  // Pale yellow
-    QPen borderPen(QColor(100, 100, 100));
+    m_readoutLabel->setBrush(QBrush(QColor(255, 255, 240, 230)));
+    QPen borderPen(CBStyle::BORDER);
     borderPen.setWidth(1);
     m_readoutLabel->setPen(borderPen);
     m_readoutLabel->setVisible(false);
 
-    // -----------------------------------------------------------------------
-    // Per-curve tracers (filled circles that snap to data points)
-    // -----------------------------------------------------------------------
+    // Per-curve tracers
     m_tracers.clear();
     static const QVector<QColor> colors = {
-                                           { 37,  99, 235}, {220,  38,  38}, { 22, 163,  74},
-                                           {217, 119,   6}, {147,  51, 234}, { 14, 165, 233},
-                                           {244,  63,  94}, { 34, 197,  94},
-                                           };
-
+        CBStyle::ACCENT, CBStyle::RED, CBStyle::GREEN, CBStyle::ORANGE,
+        QColor(147,  51, 234), QColor( 14, 165, 233),
+        QColor(244,  63,  94), QColor( 34, 197,  94),
+    };
     for (int c = 0; c < m_plot->graphCount(); ++c) {
         auto* tracer = new QCPItemTracer(m_plot);
         tracer->setGraph(m_plot->graph(c));
         tracer->setStyle(QCPItemTracer::tsCircle);
         tracer->setSize(8);
-
         QPen tPen(colors[c % colors.size()]);
         tPen.setWidth(2);
         tracer->setPen(tPen);
         tracer->setBrush(QBrush(colors[c % colors.size()]));
         tracer->setVisible(false);
-        tracer->setInterpolating(true);   // Linear interpolation between data pts
-
+        tracer->setInterpolating(true);
         m_tracers.append(tracer);
     }
 }
 
+
 // ============================================================================
-// INTERACTIVE PLOT CLICK HANDLER
+//  PLOT CLICK HANDLER (unchanged from prior version)
 // ============================================================================
-// Triggered by QCustomPlot::mousePress.
-// 1. Converts the pixel x-position to a frequency in GHz.
-// 2. Finds the nearest frequency index in m_freqs.
-// 3. Updates the crosshair, per-curve tracers, and the readout label.
 
 void MainWindow::onPlotClicked(QMouseEvent* event)
 {
-    // Ignore if no data has been computed yet
     if (m_freqs.isEmpty() || m_SE_data.isEmpty()) return;
-
-    // Ignore right-click (reserved for QCustomPlot context menu / drag)
     if (event->button() != Qt::LeftButton) return;
 
-    // Convert pixel x → axis coordinate [GHz]
-    const double clickedGHz =
-        m_plot->xAxis->pixelToCoord(event->pos().x());
+    const double clickedGHz = m_plot->xAxis->pixelToCoord(event->pos().x());
 
-    // Find nearest index in the frequency array
     int    idx     = 0;
     double minDist = std::abs(m_freqs[0] - clickedGHz);
     for (int i = 1; i < m_freqs.size(); ++i) {
@@ -796,9 +1146,6 @@ void MainWindow::onPlotClicked(QMouseEvent* event)
     }
     const double f_GHz = m_freqs[idx];
 
-    // -----------------------------------------------------------------------
-    // Update crosshair: vertical line at f_GHz spanning the full y-range
-    // -----------------------------------------------------------------------
     if (m_crosshairLine) {
         const double yLo = m_plot->yAxis->range().lower - 1.0;
         const double yHi = m_plot->yAxis->range().upper + 1.0;
@@ -807,50 +1154,32 @@ void MainWindow::onPlotClicked(QMouseEvent* event)
         m_crosshairLine->setVisible(true);
     }
 
-    // -----------------------------------------------------------------------
-    // Update tracers: snap each dot to the data point at idx
-    // -----------------------------------------------------------------------
     for (auto* tracer : m_tracers) {
         tracer->setGraphKey(f_GHz);
         tracer->setVisible(true);
     }
 
-    // -----------------------------------------------------------------------
-    // Build readout text
-    //   Line 1: "f = X.XXXX GHz"
-    //   Lines:  "P1 :  XX.XX dB"  (one per curve; NaN → "  N/A   ")
-    // -----------------------------------------------------------------------
     QString text = QString("f = %1 GHz\n").arg(f_GHz, 0, 'f', 4);
     for (int c = 0; c < m_SE_data.size(); ++c) {
         const double se = m_SE_data[c].value(idx,
                                              std::numeric_limits<double>::quiet_NaN());
         const QString lbl = m_labels.value(c, QString("P%1").arg(c + 1));
         if (std::isfinite(se)) {
-            text += QString("%1 : %2 dB\n")
-            .arg(lbl, -4)
-                .arg(se, 8, 'f', 2);
+            text += QString("%1 : %2 dB\n").arg(lbl, -4).arg(se, 8, 'f', 2);
         } else {
-            // Perfect shield or missing data
-            text += QString("%1 :   ∞ dB\n").arg(lbl, -4);
+            text += QString("%1 :   inf dB\n").arg(lbl, -4);
         }
     }
     text = text.trimmed();
 
-    // -----------------------------------------------------------------------
-    // Position readout label — avoid running off the right or top edge
-    // -----------------------------------------------------------------------
     if (m_readoutLabel) {
-        const double xRange  = m_plot->xAxis->range().size();
-        const double xOff    = m_plot->xAxis->range().lower;
-        const double yTop    = m_plot->yAxis->range().upper;
-        const double yRange  = m_plot->yAxis->range().size();
-
-        // Flip to left alignment when click is in the right 40% of the plot
+        const double xRange = m_plot->xAxis->range().size();
+        const double xOff   = m_plot->xAxis->range().lower;
+        const double yTop   = m_plot->yAxis->range().upper;
+        const double yRange = m_plot->yAxis->range().size();
         const bool nearRight = (clickedGHz - xOff) > 0.60 * xRange;
         m_readoutLabel->setPositionAlignment(
             (nearRight ? Qt::AlignRight : Qt::AlignLeft) | Qt::AlignTop);
-
-        // Place label near top of plot, slightly inset from axis edge
         m_readoutLabel->position->setCoords(f_GHz, yTop - 0.04 * yRange);
         m_readoutLabel->setText(text);
         m_readoutLabel->setVisible(true);
