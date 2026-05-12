@@ -1201,20 +1201,14 @@ private:
     void showPlaceholder(bool s){ scrollArea_->setVisible(!s); placeholderLabel_->setVisible(s); }
 
     QString spinSS(QColor col) {
-        return QString("QDoubleSpinBox,QSpinBox,QLineEdit{"
-                       "background:rgb(%1,%2,%3);color:rgb(%4,%5,%6);"
-                       "border:1px solid rgb(%7,%8,%9);border-radius:4px;padding:3px 6px;"
-                       "font-family:'Courier New';font-size:11px;}"
-                       "QDoubleSpinBox:focus,QSpinBox:focus,QLineEdit:focus{"
-                       "border:1px solid rgb(%10,%11,%12);}")
-            .arg(CBStyle::BG.red()).arg(CBStyle::BG.green()).arg(CBStyle::BG.blue())
-            .arg(CBStyle::TEXT.red()).arg(CBStyle::TEXT.green()).arg(CBStyle::TEXT.blue())
-            .arg(CBStyle::BORDER.red()).arg(CBStyle::BORDER.green()).arg(CBStyle::BORDER.blue())
-            .arg(col.red()).arg(col.green()).arg(col.blue());
+        // [T2.1a] Forwarded to EMStyle::spinSS — single source of truth.
+        // Body kept as a forwarder so existing addDouble/addInt/addLineEdit
+        // call sites compile unchanged.
+        return EMStyle::spinSS(col);
     }
     QString lblSS() {
-        return QString("color:rgb(%1,%2,%3);font-family:'Courier New';font-size:10px;")
-        .arg(CBStyle::TEXT_MUTED.red()).arg(CBStyle::TEXT_MUTED.green()).arg(CBStyle::TEXT_MUTED.blue());
+        // [T2.1a] Forwarded to EMStyle::lblSS — single source of truth.
+        return EMStyle::lblSS();
     }
 
     // [T1.2-E] addDouble / addInt / addLineEdit:
