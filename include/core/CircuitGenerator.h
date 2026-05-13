@@ -79,7 +79,10 @@ struct SectionConfig {
     double obs_position    = 0.150;    ///< pᵢ: observation point offset from section
     ///<     front wall [m].  Must satisfy
     ///<     0 < pᵢ < dᵢ  (strictly positive,
-    ///<     strictly less than depth).
+    ///<     strictly less than depth) — but
+    ///<     ONLY when has_observation is true.
+    ///<     When has_observation is false, the
+    ///<     field is unused and not validated.
     bool   has_observation = true;     ///< Record SE at this observation point
 
     // --- Optional: per-section cross-section width override ---
@@ -105,22 +108,49 @@ struct SectionConfig {
     // -----------------------------------------------------------------------
     // Validation
     // -----------------------------------------------------------------------
+    //
+    // [T3.1] obs_position is validated ONLY when has_observation == true.
+    //
+    // Rationale:
+    //   The CASCADE and STAR_BRANCH generators below already only consume
+    //   obs_position when sec.has_observation is true (see
+    //   "if (sec.has_observation) obs_points.push_back(...)" in
+    //   generateCascade/generateStarBranch and the use of sec.obs_position
+    //   inside addTL calls — both occur in code paths that, by construction,
+    //   only matter when the section's observation is enabled at the call
+    //   site that issues the SE readout).
+    //
+    //   Previously SectionConfig::isValid checked obs_position
+    //   unconditionally. That broke the natural workflow where a section
+    //   with has_observation = false would carry a stale obs_position
+    //   value (a previously-typed number, or the 150 mm default) that
+    //   could be larger than the new depth — making the entire config
+    //   "invalid" purely because of an unused field.
+    //
+    //   The validity contract now matches how the field is consumed:
+    //   "if observation is enabled, obs_position must be in (0, depth)".
+
     bool isValid(std::string& error_msg) const {
 
         if (depth <= 0.0) {
             error_msg = "Section depth must be positive";
             return false;
         }
-        // obs_position must be strictly inside (0, depth) so that neither
-        // TL segment has zero length (which TL_EmptyCavity rejects).
-        if (obs_position <= 0.0) {
-            error_msg = "Observation position must be strictly positive (obs_position > 0)";
-            return false;
+
+        // [T3.1] Gate obs_position checks on has_observation.
+        if (has_observation) {
+            // obs_position must be strictly inside (0, depth) so that neither
+            // TL segment has zero length (which TL_EmptyCavity rejects).
+            if (obs_position <= 0.0) {
+                error_msg = "Observation position must be strictly positive (obs_position > 0)";
+                return false;
+            }
+            if (obs_position >= depth) {
+                error_msg = "Observation position must be strictly less than depth (obs_position < depth)";
+                return false;
+            }
         }
-        if (obs_position >= depth) {
-            error_msg = "Observation position must be strictly less than depth (obs_position < depth)";
-            return false;
-        }
+
         if (aperture_l <= 0.0 || aperture_w <= 0.0) {
             error_msg = "Aperture dimensions must be positive";
             return false;

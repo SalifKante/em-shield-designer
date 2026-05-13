@@ -24,8 +24,10 @@
 //
 // Widget ↔ SectionItemData field map
 // ───────────────────────────────────────────────────────────────────────────
-// m_spinDepth          ↔  depth_mm
-// m_spinObsPos         ↔  obs_position_mm   min=0.1 mm (strictly positive)
+// m_spinDepth          ↔  depth_mm           min=1.0 mm  [T3.1] lowered from
+//                                            10.0 mm to support Structure 1
+//                                            (Section 2 depth = 5 mm)
+// m_spinObsPos         ↔  obs_position_mm    min=0.1 mm (strictly positive)
 // m_chkObservation     ↔  has_observation
 // m_spinWidthA         ↔  section_width_a_mm  (-1 = use global a)
 // m_spinApL            ↔  aperture_l_mm
@@ -127,8 +129,21 @@ private:
         QVBoxLayout* cavLayout = new QVBoxLayout;
         cavLayout->setSpacing(4);
 
+        // [T3.1] Depth minimum lowered from 10.0 mm to 1.0 mm.
+        //
+        // Rationale:
+        //   Dissertation Structure 1 (Fig 3.19a) tests a 2-section cascade
+        //   with Section 2 depth d_2 = 5 mm. The previous 10.0 mm floor made
+        //   that geometry unreachable through the Quick Simulation UI and
+        //   forced Section 2 to a different value than the dissertation
+        //   specifies, contaminating any validation against Fig 3.19a.
+        //
+        //   1.0 mm is engine-safe: TL_EmptyCavity::isValid requires
+        //   L > 0.1 mm (1e-4 m), and SectionConfig::isValid requires
+        //   depth > 0 and obs_position strictly inside (0, depth). The new
+        //   floor leaves a 10x safety margin above the engine's hard limit.
         addSpinRow(cavLayout, "Depth:", m_spinDepth,
-                   10.0, 2000.0, 300.0, " mm", 1);
+                   1.0, 2000.0, 300.0, " mm", 1);
 
         // obs_position minimum is 0.1 mm (strictly positive) because
         // SectionConfig::isValid() rejects obs_position == 0 — it would
@@ -359,7 +374,7 @@ private:
     QLabel* m_lblTitle = nullptr;
 
     // Cavity
-    QDoubleSpinBox* m_spinDepth       = nullptr;
+    QDoubleSpinBox* m_spinDepth       = nullptr;   ///< [T3.1] min = 1.0 mm
     QDoubleSpinBox* m_spinObsPos      = nullptr;   ///< min = 0.1 mm (strictly positive)
     QCheckBox*      m_chkObservation  = nullptr;
 
