@@ -36,6 +36,14 @@
 //    [T1.2-F] Brand strip ("EMShieldBuilder") relocated from
 //             the deleted toolbar to the top of the left panel.
 //
+//  Task 3.2 changes (temporary validator relaxation):
+//    [T3.2-TEMPORARY] Validator relaxed so users can build the
+//             dissertation Fig 3.10b topology by manually
+//             splitting each Cavity into TL_p and TL_{d-p}
+//             with Obs.Pt placed in between. All [T3.2-TEMPORARY]
+//             markers WILL be reverted by Task 3.3 (Option α,
+//             internal split offset on the Cavity element).
+//
 //  Key design decisions (preserved from before Task 1.2):
 //  [D1] Obs.Point (Load) is a SHUNT tap: connects nFrom→0.
 //       nodeIdx is NOT incremented after a Load.
@@ -1742,18 +1750,8 @@ private:
     // ============================================================
     //  [T1.5b] Circuit topology validation
     //
-    //  The MNA solver assumes a strict alternating chain:
-    //
-    //      Source -> ( Aperture -> Cavity )+ -> Obs.Pt
-    //
-    //  where Aperture is either an AP_SlotAperture or an
-    //  AP_SlotWithCover, and Cavity is either a TL_EmptyCavity or
-    //  a TL_DielectricCavity. The chain must be sorted by X
-    //  position. Any deviation produces incorrect SE values or
-    //  a degenerate MNA system.
-    //
     //  Validation runs in two places:
-    //    1. runCompute() — fails loudly with a QMessageBox.
+    //    1. runCompute() — fails loudly with a MessageDialog.
     //    2. refreshValidityIndicator() — drives the dot/text row
     //       above the COMPUTE button (live status).
     //
@@ -1772,11 +1770,12 @@ private:
         SourceNotFirst,         // Source not at leftmost X position
         ObsMissing,             // no Obs.Pt at all
         ObsMultiple,            // >1 Obs.Pt
-        ObsNotLast,             // Obs.Pt not at rightmost X position
+        ObsNotLast,             // [T3.2] Retained but unused — restored in T3.3
+        ObsAtPosition0,         // [T3.2] Obs.Pt cannot be leftmost (before Source)
         ApertureMissing,        // no Aperture/AP+Cover at all
         CavityMissing,          // no Cavity/Diel.Cav at all
-        UnbalancedSections,     // |#apertures - #cavities| != 0
-        PatternViolation        // alternation broken at some position
+        UnbalancedSections,     // [T3.2] Retained but unused — restored in T3.3
+        PatternViolation        // [T3.2] Retained but unused — restored in T3.3
     };
 
     struct ValidationResult {
@@ -1795,17 +1794,43 @@ private:
 
     // ─── Core validator ────────────────────────────────────────
     //
-    // Steps, in priority order:
-    //   1. empty canvas
-    //   2. count of Sources (must == 1) and Obs.Pts (must == 1)
-    //   3. presence of >=1 aperture, >=1 cavity
-    //   4. balance #apertures == #cavities
-    //   5. Source is leftmost, Obs.Pt is rightmost
-    //   6. middle of the chain alternates Aperture, Cavity, Aperture,
-    //      Cavity, ..., ending on Cavity just before the Obs.Pt.
+    // [T3.2-TEMPORARY] PERMISSIVE MODE — January 2026.
     //
-    // Reads from canvas_->elements; sorts a local copy. Pure function
-    // w.r.t. the canvas (does not mutate state).
+    //   Until TASK 3.3 (Option α — internal cavity split offset) lands, the
+    //   validator must accept the manual-split build used to express the
+    //   dissertation Fig 3.10b topology in Circuit Builder:
+    //
+    //     Source -> Ap -> Cav(p1) -> Obs.Pt -> Cav(d1-p1)
+    //                 -> Ap -> Cav(p2) -> Cav(d2-p2)         (back-wall short)
+    //
+    //   This shape has nAp=2, nCav=4, and Obs.Pt is NOT at the end. The
+    //   pre-T3.2 rules ("nAp == nCav", "Obs.Pt is rightmost", "strict
+    //   Ap/Cav alternation") rejected it. Those three rules are dropped
+    //   here and will be re-introduced by TASK 3.3 in a form that fits
+    //   the new Cavity-with-internal-split element.
+    //
+    //   The remaining rules ARE kept because they catch real user mistakes:
+    //     • Empty canvas
+    //     • Source missing / multiple / not first
+    //     • Obs.Pt missing / multiple
+    //     • Aperture missing / Cavity missing
+    //
+    //   Rules deliberately DROPPED for this task:
+    //     • UnbalancedSections (nAp != nCav)        — manual-split has 2 vs 4
+    //     • ObsNotLast (Obs.Pt must be rightmost)   — manual-split has it mid-chain
+    //     • PatternViolation (strict Ap/Cav alternation) — manual-split breaks it
+    //
+    //   Rules added by this task:
+    //     • ObsAtPosition0 — Obs.Pt cannot be at the leftmost position (it
+    //       must come after at least one Source / Aperture).
+    //
+    //   The runCompute() codepath was traced manually and confirmed correct
+    //   for the manual-split build (see TASK 3.2 plan). In particular, the
+    //   auto-back-wall-short logic fires correctly because the build ends
+    //   on a Cavity (not on the Obs.Pt).
+    //
+    //   Reads from canvas_->elements; sorts a local copy. Pure function
+    //   w.r.t. the canvas (does not mutate state).
     ValidationResult validateCircuitCore() const {
         if (!canvas_ || canvas_->elements.isEmpty()) {
             return {ValidationCode::EmptyCanvas, -1};
@@ -1831,45 +1856,41 @@ private:
             if (isCavity(t))   ++nCav;
         }
 
-        if (nSrc == 0)                     return {ValidationCode::SourceMissing,    -1};
-        // [T1.5b-FIX] Order of "missing" checks matches the user's natural
-        // left-to-right build order: Source → Aperture → Cavity → Obs.Pt.
-        // Originally Obs.Pt-missing was checked before Aperture/Cavity-missing,
-        // which made the indicator say "Obs.Pt missing" even when the user had
-        // only just started by placing a Source. The user couldn't see the
-        // intermediate hints ("Aperture missing", "Cavity missing") because
-        // the early return skipped them. Reordering yields a natural
-        // breadcrumb trail: each new dropped element advances the indicator
-        // to the next missing piece.
-        if (nAp  == 0)                     return {ValidationCode::ApertureMissing,  -1};
-        if (nCav == 0)                     return {ValidationCode::CavityMissing,    -1};
-        if (nObs == 0)                     return {ValidationCode::ObsMissing,       -1};
-        // "Multiple of X" checks come AFTER all the "missing" checks because
-        // having extras is only meaningful once the minimum set is present.
-        // A user with two Sources but no Aperture has a more fundamental
-        // problem ("Aperture missing") that we report first.
-        if (nSrc >  1)                     return {ValidationCode::SourceMultiple,   -1};
-        if (nObs >  1)                     return {ValidationCode::ObsMultiple,      -1};
-        if (nAp != nCav)                   return {ValidationCode::UnbalancedSections, -1};
+        // ── Missing-element checks ────────────────────────────────────────
+        //
+        // Order matches the user's natural left-to-right build order:
+        // Source → Aperture → Cavity → Obs.Pt. Each new dropped element
+        // advances the indicator to the next missing piece.
+        if (nSrc == 0) return {ValidationCode::SourceMissing,   -1};
+        if (nAp  == 0) return {ValidationCode::ApertureMissing, -1};
+        if (nCav == 0) return {ValidationCode::CavityMissing,   -1};
+        if (nObs == 0) return {ValidationCode::ObsMissing,      -1};
 
-        // Position checks
+        // ── Multiplicity checks ───────────────────────────────────────────
+        if (nSrc > 1) return {ValidationCode::SourceMultiple, -1};
+        if (nObs > 1) return {ValidationCode::ObsMultiple,    -1};
+
+        // ── Position checks (kept) ────────────────────────────────────────
+        // Source must be the leftmost element — the equivalent circuit is
+        // read left-to-right starting from the excitation V0.
         if (!isSource(ordered.front()->params.type))
             return {ValidationCode::SourceNotFirst, 0};
-        if (!isObs(ordered.back()->params.type))
-            return {ValidationCode::ObsNotLast, n - 1};
 
-        // Pattern check on the middle: indices 1..n-2 must be
-        //   Aperture, Cavity, Aperture, Cavity, ...
-        // i.e. element at offset (1 + 2k) is Aperture, at (1 + 2k + 1) is Cavity.
-        for (int i = 1; i < n - 1; ++i) {
-            const ElementType t = ordered[i]->params.type;
-            const int k = i - 1;          // 0-based middle index
-            const bool wantAperture = (k % 2 == 0);
-            const bool ok = wantAperture ? isAperture(t) : isCavity(t);
-            if (!ok) {
-                return {ValidationCode::PatternViolation, i};
-            }
-        }
+        // [T3.2-TEMPORARY] The original ObsNotLast check is replaced with
+        // a softer ObsAtPosition0 check. The Obs.Pt only needs to come
+        // AFTER the Source — it does NOT have to be rightmost, because the
+        // dissertation circuit places the obs node inside the first cavity,
+        // not at the back of the enclosure.
+        if (n >= 1 && isObs(ordered.front()->params.type))
+            return {ValidationCode::ObsAtPosition0, 0};
+
+        // [T3.2-TEMPORARY] The following three checks are intentionally
+        // omitted in permissive mode:
+        //   - if (nAp != nCav) return UnbalancedSections
+        //   - if (!isObs(ordered.back())) return ObsNotLast
+        //   - pattern alternation loop returning PatternViolation
+        // They will be restored in TASK 3.3 with the correct "cavity carries
+        // internal obs offset" semantics.
 
         return {ValidationCode::Ok, -1};
     }
@@ -1885,6 +1906,7 @@ private:
         case ValidationCode::ObsMissing:          return QStringLiteral("Obs.Pt missing");
         case ValidationCode::ObsMultiple:         return QStringLiteral("Multiple Obs.Pts");
         case ValidationCode::ObsNotLast:          return QStringLiteral("Obs.Pt must be last");
+        case ValidationCode::ObsAtPosition0:      return QStringLiteral("Obs.Pt cannot be first");
         case ValidationCode::ApertureMissing:     return QStringLiteral("Aperture missing");
         case ValidationCode::CavityMissing:       return QStringLiteral("Cavity missing");
         case ValidationCode::UnbalancedSections:  return QStringLiteral("Unbalanced sections");
@@ -1931,11 +1953,18 @@ private:
                 "Multiple Obs.Pt elements found.\n\n"
                 "Only one Obs.Pt is allowed per circuit. Delete the extras.");
         case ValidationCode::ObsNotLast:
+            // [T3.2-TEMPORARY] This code is not currently emitted. Retained
+            // for the TASK 3.3 restoration path.
             return QStringLiteral(
                 "Obs.Pt is not the rightmost element.\n\n"
                 "The Obs.Pt must be placed at the rightmost X position so the "
                 "back-wall short-circuit termination can be appended after it. "
                 "Move it to the right of all other elements, or click Arrange.");
+        case ValidationCode::ObsAtPosition0:
+            return QStringLiteral(
+                "Obs.Pt cannot be the leftmost element.\n\n"
+                "The chain must start with a Source. Move the Source to the "
+                "left of the Obs.Pt, or click Arrange to re-order automatically.");
         case ValidationCode::ApertureMissing:
             return QStringLiteral(
                 "No Aperture element found.\n\n"
@@ -1949,6 +1978,8 @@ private:
                 "behind the aperture to define the waveguide region of the "
                 "enclosure interior.");
         case ValidationCode::UnbalancedSections:
+            // [T3.2-TEMPORARY] This code is not currently emitted. Retained
+            // for the TASK 3.3 restoration path.
             return QStringLiteral(
                 "Each Aperture must be paired with a Cavity.\n\n"
                 "The strict-alternation rule requires the same number of "
@@ -1956,6 +1987,8 @@ private:
                 "do not match - add or remove elements until the counts "
                 "are equal.");
         case ValidationCode::PatternViolation:
+            // [T3.2-TEMPORARY] This code is not currently emitted. Retained
+            // for the TASK 3.3 restoration path.
             return QStringLiteral(
                 "Element order is invalid.\n\n"
                 "After the Source, the chain must alternate "
