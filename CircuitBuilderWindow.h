@@ -36,13 +36,16 @@
 //    [T1.2-F] Brand strip ("EMShieldBuilder") relocated from
 //             the deleted toolbar to the top of the left panel.
 //
-//  Task 3.2 changes (temporary validator relaxation):
-//    [T3.2-TEMPORARY] Validator relaxed so users can build the
-//             dissertation Fig 3.10b topology by manually
-//             splitting each Cavity into TL_p and TL_{d-p}
-//             with Obs.Pt placed in between. All [T3.2-TEMPORARY]
-//             markers WILL be reverted by Task 3.3 (Option α,
-//             internal split offset on the Cavity element).
+//  Task 3.2 / P2 (Option α) — internal cavity observation offset:
+//    The temporary Task 3.2 validator relaxation has been
+//             REVERTED (its markers are removed). The strict
+//             topology rules (nAp == nCav,
+//             Obs.Pt rightmost, Aperture/Cavity alternation) are
+//             restored. The dissertation Fig 3.10b topology is now
+//             expressed via a Cavity's "Has internal observation"
+//             offset, which splits the Cavity into TL_p and
+//             TL_{d-p} at runCompute() time with an observation
+//             node in between (engine internals untouched).
 //
 //  Key design decisions (preserved from before Task 1.2):
 //  [D1] Obs.Point (Load) is a SHUNT tap: connects nFrom→0.
@@ -73,6 +76,7 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QDoubleSpinBox>
+#include <QCheckBox>
 #include <QSpinBox>
 #include <QLineEdit>
 #include <QSplitter>
@@ -191,6 +195,14 @@ struct ElementParams {
     // ── DielectricCavity extra fields ─────────────────────
     double eps_r           { 2.0  };
     double h_dielectric_mm { 10.0 };  // dielectric layer [mm] ≤ b
+
+    // ── Cavity internal observation (P2, Option α) ───────
+    // When enabled, runCompute() splits the cavity into a front TL of
+    // length obs_offset_mm and a back TL of length (L_cavity_mm − obs_offset_mm)
+    // with an observation node between them. Applies to EmptyCavity and
+    // DielectricCavity. Validity requires 0 < obs_offset_mm < L_cavity_mm.
+    bool   has_internal_obs { false };
+    double obs_offset_mm    { 50.0 };  // [mm], from the cavity front wall
 
     // ── Load (Obs.Point) — shunt to ground ───────────────
     // [FIX-D1] Default = 1e9 Ω (near-open-circuit voltage probe).
@@ -1015,8 +1027,7 @@ public:
 
         // [FIX-B4] Correct 5-element circuit matching Phase A (Fig. 3.7)
         placeholderLabel_=new QLabel(
-            "  CORRECT CIRCUIT\n"
-            "  (matches Phase A):\n\n"
+            "  CORRECT CIRCUIT:\n\n"
             "  1. [Source]\n"
             "       a, b, t_wall,\n"
             "       f_start, f_end\n"
@@ -1024,16 +1035,21 @@ public:
             "  2. [Aperture]\n"
             "       l_slot, w_slot\n"
             "     ↓  (SHUNT 1→0)\n"
-            "  3. [Cavity]  L = p\n"
+            "  3. [Cavity]  L\n"
             "       e.g. 150 mm\n"
+            "       optional internal\n"
+            "       obs (offset = p)\n"
             "     ↓  (series 1→2)\n"
-            "  4. [Obs.Pt]  ← SE_P1\n"
-            "     ↓  (SHUNT 2→0)\n"
-            "  5. [Cavity]  L = d-p\n"
-            "       e.g. 150 mm\n"
-            "     ↓  (series 2→3)\n"
+            "     … repeat Aperture\n"
+            "       + Cavity pairs …\n"
+            "  4. [Obs.Pt]  (last)\n"
+            "     ↓  (SHUNT, last)\n"
             "  ╚═ Back-wall short\n"
-            "     auto-added at node 3\n\n"
+            "     auto-added at end\n\n"
+            "  A Cavity with internal\n"
+            "  observation splits into\n"
+            "  TL_p + TL_(L−p) with an\n"
+            "  obs node between them.\n\n"
             "  Use Arrange after\n"
             "  dropping elements.\n\n"
             "  Click element to\n"
@@ -1110,18 +1126,34 @@ public slots:
             addDouble("τ gap [mm]:",  el->params.tau_cover_mm, 0.1, 10.0,   0.1,
                       [this](double v){ currentElement_->params.tau_cover_mm = v; }, 2);
             break;
-        case ElementType::EmptyCavity:
+        case ElementType::EmptyCavity: {
             addDouble("L [mm]:", el->params.L_cavity_mm, 1.0, 2000.0, 10.0,
                       [this](double v){ currentElement_->params.L_cavity_mm = v; }, 1);
+            // [P2] Optional internal observation split.
+            auto* obsChk = addCheckBox("Has internal observation", el->params.has_internal_obs,
+                      [this](bool on){ currentElement_->params.has_internal_obs = on; });
+            auto* offSpin = addDouble("obs offset [mm]:", el->params.obs_offset_mm, 0.1, 2000.0, 1.0,
+                      [this](double v){ currentElement_->params.obs_offset_mm = v; }, 1);
+            offSpin->setEnabled(el->params.has_internal_obs);
+            connect(obsChk, &QCheckBox::toggled, offSpin, &QWidget::setEnabled);
             break;
-        case ElementType::DielectricCavity:
+        }
+        case ElementType::DielectricCavity: {
             addDouble("L [mm]:",      el->params.L_cavity_mm,     1.0,  2000.0, 10.0,
                       [this](double v){ currentElement_->params.L_cavity_mm = v; }, 1);
             addDouble("h_diel [mm]:", el->params.h_dielectric_mm, 0.1,  1000.0, 1.0,
                       [this](double v){ currentElement_->params.h_dielectric_mm = v; }, 2);
             addDouble("ε_r:",        el->params.eps_r,         1.0,   100.0, 0.5,
                       [this](double v){ currentElement_->params.eps_r = v; });
+            // [P2] Optional internal observation split.
+            auto* obsChk = addCheckBox("Has internal observation", el->params.has_internal_obs,
+                      [this](bool on){ currentElement_->params.has_internal_obs = on; });
+            auto* offSpin = addDouble("obs offset [mm]:", el->params.obs_offset_mm, 0.1, 2000.0, 1.0,
+                      [this](double v){ currentElement_->params.obs_offset_mm = v; }, 1);
+            offSpin->setEnabled(el->params.has_internal_obs);
+            connect(obsChk, &QCheckBox::toggled, offSpin, &QWidget::setEnabled);
             break;
+        }
         case ElementType::Load:
             addInfo("SHUNT observation tap.\n"
                     "SE at this node (Eq. 3.8):\n"
@@ -1131,12 +1163,15 @@ public slots:
                     "WARNING: 377Ω = matched\n"
                     "load → kills resonances!\n\n"
                     "CORRECT CIRCUIT ORDER:\n"
-                    "Source → Aperture\n"
-                    "→ Cavity (L = p)\n"
-                    "→ Obs.Pt (Z=1e9)\n"
-                    "→ Cavity (L = d-p)\n"
+                    "Source → Aperture →\n"
+                    "Cavity → … → Obs.Pt\n"
+                    "(Z=1e9, must be last)\n"
                     "Back-wall short added\n"
-                    "automatically.");
+                    "automatically.\n\n"
+                    "For an obs point inside\n"
+                    "a cavity, enable that\n"
+                    "cavity's internal\n"
+                    "observation offset.");
             // [FIX-D4] max=1e10 covers the 1e9 default; step=1e6 for navigation
             addDouble("Z_L real [Ω]:", el->params.ZL_real,  0.001,    1.0e10, 1.0e6,
                       [this](double v){ currentElement_->params.ZL_real = v; });
@@ -1219,6 +1254,28 @@ private:
         // [T2.1a] Forwarded to EMStyle::lblSS — single source of truth.
         return EMStyle::lblSS();
     }
+    // [P2] Checkbox QSS using the CBStyle palette. Kept local (not in
+    // EMStyle) because P2 is scoped to this file; the checked indicator
+    // takes the element accent so it matches the row's spinboxes.
+    QString chkSS(QColor col) const {
+        auto rgb = [](const QColor& c){
+            return QString("rgb(%1,%2,%3)").arg(c.red()).arg(c.green()).arg(c.blue());
+        };
+        return QString(
+            "QCheckBox{color:%1;font-family:'Courier New';font-size:10px;spacing:6px;}"
+            "QCheckBox:disabled{color:%2;}"
+            "QCheckBox::indicator{width:13px;height:13px;border:1px solid %3;"
+            "border-radius:3px;background:%4;}"
+            "QCheckBox::indicator:checked{background:%5;border:1px solid %5;}"
+            "QCheckBox::indicator:disabled{border:1px solid %6;background:%7;}")
+            .arg(rgb(CBStyle::TEXT))        // %1 label text
+            .arg(rgb(CBStyle::TEXT_DIM))    // %2 disabled label
+            .arg(rgb(CBStyle::BORDER))      // %3 box border
+            .arg(rgb(CBStyle::BG))          // %4 box fill (unchecked)
+            .arg(rgb(col))                  // %5 checked fill + border (element accent)
+            .arg(rgb(CBStyle::BORDER_LT))   // %6 disabled border
+            .arg(rgb(CBStyle::SURFACE));    // %7 disabled fill
+    }
 
     // [T1.2-E] addDouble / addInt / addLineEdit:
     // captures changed from [=] to explicit [this, fn] to satisfy
@@ -1255,7 +1312,7 @@ private:
     //
     // Fix: call setDecimals(6) BEFORE setValue() so the value is rounded
     // to 6 decimals (i.e., not rounded at all for our use case).
-    void addDouble(const QString& l, double v, double mn, double mx, double step,
+    CLocaleDoubleSpinBox* addDouble(const QString& l, double v, double mn, double mx, double step,
                    std::function<void(double)> fn, int decimals = 6)
     {
         auto* s = new CLocaleDoubleSpinBox(formWidget_);
@@ -1273,6 +1330,26 @@ private:
                 });
         auto* ll = new QLabel(l, formWidget_); ll->setStyleSheet(lblSS());
         formLayout_->addRow(ll, s);
+        return s;                                    // [P2] handle so callers can grey the spinbox
+    }
+    // [P2] Checkbox row. Mirrors addInt's m_loading_ guard and explicit
+    // [this, fn] capture. Returns the QCheckBox* so callers can wire its
+    // toggled() signal to an associated spinbox's setEnabled().
+    QCheckBox* addCheckBox(const QString& l, bool v,
+                           std::function<void(bool)> fn)
+    {
+        auto* cb = new QCheckBox(l, formWidget_);
+        cb->setChecked(v);
+        QColor c = currentElement_ ? currentElement_->accentColor() : CBStyle::ACCENT;
+        cb->setStyleSheet(chkSS(c));
+        connect(cb, &QCheckBox::toggled, this,
+                [this, fn](bool on){
+                    if (m_loading_) return;
+                    fn(on);
+                    emit paramsChanged(currentElement_);
+                });
+        formLayout_->addRow(cb);
+        return cb;
     }
     void addInt(const QString& l, int v, int mn, int mx, int step,
                 std::function<void(int)> fn)
@@ -1771,12 +1848,12 @@ private:
         SourceNotFirst,         // Source not at leftmost X position
         ObsMissing,             // no Obs.Pt at all
         ObsMultiple,            // >1 Obs.Pt
-        ObsNotLast,             // [T3.2] Retained but unused — restored in T3.3
-        ObsAtPosition0,         // [T3.2] Obs.Pt cannot be leftmost (before Source)
+        ObsNotLast,             // Obs.Pt must be the rightmost element
         ApertureMissing,        // no Aperture/AP+Cover at all
         CavityMissing,          // no Cavity/Diel.Cav at all
-        UnbalancedSections,     // [T3.2] Retained but unused — restored in T3.3
-        PatternViolation        // [T3.2] Retained but unused — restored in T3.3
+        UnbalancedSections,     // nAp != nCav
+        PatternViolation,       // not Source -> (Ap -> Cav)* -> Obs.Pt
+        CavityObsOffsetRange    // [P2] internal obs offset not in (0, L_cavity)
     };
 
     struct ValidationResult {
@@ -1795,40 +1872,28 @@ private:
 
     // ─── Core validator ────────────────────────────────────────
     //
-    // [T3.2-TEMPORARY] PERMISSIVE MODE — January 2026.
+    // [P2] STRICT MODE. The Task 3.2 permissive relaxation is reverted.
     //
-    //   Until TASK 3.3 (Option α — internal cavity split offset) lands, the
-    //   validator must accept the manual-split build used to express the
-    //   dissertation Fig 3.10b topology in Circuit Builder:
+    //   The canonical Fig 3.10b topology is now expressed with the
+    //   Cavity's "Has internal observation" offset rather than by
+    //   manually splitting cavities and dropping an Obs.Pt mid-chain:
     //
-    //     Source -> Ap -> Cav(p1) -> Obs.Pt -> Cav(d1-p1)
-    //                 -> Ap -> Cav(p2) -> Cav(d2-p2)         (back-wall short)
+    //     Source -> Ap -> Cav -> Ap -> Cav -> Obs.Pt
     //
-    //   This shape has nAp=2, nCav=4, and Obs.Pt is NOT at the end. The
-    //   pre-T3.2 rules ("nAp == nCav", "Obs.Pt is rightmost", "strict
-    //   Ap/Cav alternation") rejected it. Those three rules are dropped
-    //   here and will be re-introduced by TASK 3.3 in a form that fits
-    //   the new Cavity-with-internal-split element.
+    //   where any Cavity may carry an internal observation offset that
+    //   runCompute() turns into a front/back TL pair. The element-level
+    //   pattern above is what the validator checks.
     //
-    //   The remaining rules ARE kept because they catch real user mistakes:
+    //   Structural rules enforced:
     //     • Empty canvas
     //     • Source missing / multiple / not first
     //     • Obs.Pt missing / multiple
     //     • Aperture missing / Cavity missing
-    //
-    //   Rules deliberately DROPPED for this task:
-    //     • UnbalancedSections (nAp != nCav)        — manual-split has 2 vs 4
-    //     • ObsNotLast (Obs.Pt must be rightmost)   — manual-split has it mid-chain
-    //     • PatternViolation (strict Ap/Cav alternation) — manual-split breaks it
-    //
-    //   Rules added by this task:
-    //     • ObsAtPosition0 — Obs.Pt cannot be at the leftmost position (it
-    //       must come after at least one Source / Aperture).
-    //
-    //   The runCompute() codepath was traced manually and confirmed correct
-    //   for the manual-split build (see TASK 3.2 plan). In particular, the
-    //   auto-back-wall-short logic fires correctly because the build ends
-    //   on a Cavity (not on the Obs.Pt).
+    //     • UnbalancedSections (nAp == nCav — one pair per section)
+    //     • ObsNotLast (Obs.Pt is the rightmost element)
+    //     • PatternViolation (Source -> Ap -> Cav -> ... -> Obs.Pt)
+    //     • CavityObsOffsetRange (0 < obs_offset_mm < L_cavity_mm when
+    //       a cavity's internal observation is enabled)
     //
     //   Reads from canvas_->elements; sorts a local copy. Pure function
     //   w.r.t. the canvas (does not mutate state).
@@ -1871,27 +1936,44 @@ private:
         if (nSrc > 1) return {ValidationCode::SourceMultiple, -1};
         if (nObs > 1) return {ValidationCode::ObsMultiple,    -1};
 
-        // ── Position checks (kept) ────────────────────────────────────────
+        // ── Position checks ───────────────────────────────────────────────
         // Source must be the leftmost element — the equivalent circuit is
         // read left-to-right starting from the excitation V0.
         if (!isSource(ordered.front()->params.type))
             return {ValidationCode::SourceNotFirst, 0};
 
-        // [T3.2-TEMPORARY] The original ObsNotLast check is replaced with
-        // a softer ObsAtPosition0 check. The Obs.Pt only needs to come
-        // AFTER the Source — it does NOT have to be rightmost, because the
-        // dissertation circuit places the obs node inside the first cavity,
-        // not at the back of the enclosure.
-        if (n >= 1 && isObs(ordered.front()->params.type))
-            return {ValidationCode::ObsAtPosition0, 0};
+        // [P2] Obs.Pt must be the rightmost element so the back-wall
+        // short-circuit termination can be appended after it.
+        if (!isObs(ordered.back()->params.type))
+            return {ValidationCode::ObsNotLast, n - 1};
 
-        // [T3.2-TEMPORARY] The following three checks are intentionally
-        // omitted in permissive mode:
-        //   - if (nAp != nCav) return UnbalancedSections
-        //   - if (!isObs(ordered.back())) return ObsNotLast
-        //   - pattern alternation loop returning PatternViolation
-        // They will be restored in TASK 3.3 with the correct "cavity carries
-        // internal obs offset" semantics.
+        // [P2] One Aperture per Cavity (one matched pair per section).
+        if (nAp != nCav)
+            return {ValidationCode::UnbalancedSections, -1};
+
+        // [P2] After the Source, the chain must alternate Aperture -> Cavity
+        // -> … ending on a Cavity just before the rightmost Obs.Pt. With
+        // ordered = [Source][ middle 1..n-2 ][Obs.Pt], each odd middle slot
+        // must be an Aperture and each even middle slot a Cavity. (nAp == nCav
+        // above guarantees the middle count is even, so the last slot is a
+        // Cavity.) The internal-observation split is a per-cavity property and
+        // does not affect this element-level pattern.
+        for (int i = 1; i <= n - 2; ++i) {
+            const ElementType t = ordered[i]->params.type;
+            const bool wantAperture = ((i % 2) == 1);
+            if (wantAperture && !isAperture(t)) return {ValidationCode::PatternViolation, i};
+            if (!wantAperture && !isCavity(t)) return {ValidationCode::PatternViolation, i};
+        }
+
+        // [P2] When a Cavity enables internal observation, the offset must lie
+        // strictly inside the cavity: 0 < obs_offset_mm < L_cavity_mm.
+        for (int i = 0; i < n; ++i) {
+            const ElementParams& ep = ordered[i]->params;
+            if (isCavity(ep.type) && ep.has_internal_obs
+                && (ep.obs_offset_mm <= 0.0 || ep.obs_offset_mm >= ep.L_cavity_mm)) {
+                return {ValidationCode::CavityObsOffsetRange, i};
+            }
+        }
 
         return {ValidationCode::Ok, -1};
     }
@@ -1907,11 +1989,11 @@ private:
         case ValidationCode::ObsMissing:          return QStringLiteral("Obs.Pt missing");
         case ValidationCode::ObsMultiple:         return QStringLiteral("Multiple Obs.Pts");
         case ValidationCode::ObsNotLast:          return QStringLiteral("Obs.Pt must be last");
-        case ValidationCode::ObsAtPosition0:      return QStringLiteral("Obs.Pt cannot be first");
         case ValidationCode::ApertureMissing:     return QStringLiteral("Aperture missing");
         case ValidationCode::CavityMissing:       return QStringLiteral("Cavity missing");
         case ValidationCode::UnbalancedSections:  return QStringLiteral("Unbalanced sections");
         case ValidationCode::PatternViolation:    return QStringLiteral("Invalid order");
+        case ValidationCode::CavityObsOffsetRange:return QStringLiteral("Obs offset out of range");
         }
         return QString();
     }
@@ -1954,18 +2036,11 @@ private:
                 "Multiple Obs.Pt elements found.\n\n"
                 "Only one Obs.Pt is allowed per circuit. Delete the extras.");
         case ValidationCode::ObsNotLast:
-            // [T3.2-TEMPORARY] This code is not currently emitted. Retained
-            // for the TASK 3.3 restoration path.
             return QStringLiteral(
                 "Obs.Pt is not the rightmost element.\n\n"
                 "The Obs.Pt must be placed at the rightmost X position so the "
                 "back-wall short-circuit termination can be appended after it. "
                 "Move it to the right of all other elements, or click Arrange.");
-        case ValidationCode::ObsAtPosition0:
-            return QStringLiteral(
-                "Obs.Pt cannot be the leftmost element.\n\n"
-                "The chain must start with a Source. Move the Source to the "
-                "left of the Obs.Pt, or click Arrange to re-order automatically.");
         case ValidationCode::ApertureMissing:
             return QStringLiteral(
                 "No Aperture element found.\n\n"
@@ -1979,8 +2054,6 @@ private:
                 "behind the aperture to define the waveguide region of the "
                 "enclosure interior.");
         case ValidationCode::UnbalancedSections:
-            // [T3.2-TEMPORARY] This code is not currently emitted. Retained
-            // for the TASK 3.3 restoration path.
             return QStringLiteral(
                 "Each Aperture must be paired with a Cavity.\n\n"
                 "The strict-alternation rule requires the same number of "
@@ -1988,14 +2061,19 @@ private:
                 "do not match - add or remove elements until the counts "
                 "are equal.");
         case ValidationCode::PatternViolation:
-            // [T3.2-TEMPORARY] This code is not currently emitted. Retained
-            // for the TASK 3.3 restoration path.
             return QStringLiteral(
                 "Element order is invalid.\n\n"
                 "After the Source, the chain must alternate "
                 "Aperture -> Cavity -> Aperture -> Cavity -> ... and end on a "
                 "Cavity just before the Obs.Pt. Reorder the elements (drag, "
                 "or click Arrange) so the pattern is followed.");
+        case ValidationCode::CavityObsOffsetRange:
+            return QStringLiteral(
+                "Cavity internal observation offset is out of range.\n\n"
+                "When a Cavity has \"Has internal observation\" enabled, the "
+                "offset must lie strictly inside the cavity: greater than 0 and "
+                "less than the cavity length L. Adjust the obs offset, or the "
+                "cavity length, so that 0 < offset < L.");
         }
         return QString();
     }
@@ -2143,22 +2221,53 @@ private:
                     a_g, b_g, ep.l_slot_mm*1e-3, ep.w_slot_mm*1e-3, t_g, ep.tau_cover_mm*1e-3));
                 break;
 
-            // Series cavity (air-filled TL)
+            // Series cavity (air-filled TL). [P2] When internal observation is
+            // enabled, split into front (length obs_offset) + back halves with
+            // an observation node between them (mirrors CircuitGenerator).
             case ElementType::EmptyCavity:
-                solver.addBranch(std::make_shared<TL_EmptyCavity>(
-                    nFrom, nodeIdx+1, bid,
-                    a_g, b_g, ep.L_cavity_mm*1e-3));
-                ++nodeIdx;
+                if(ep.has_internal_obs && ep.obs_offset_mm > 0.0){
+                    const double Lfront = ep.obs_offset_mm * 1e-3;
+                    const double Lback  = (ep.L_cavity_mm - ep.obs_offset_mm) * 1e-3;
+                    solver.addBranch(std::make_shared<TL_EmptyCavity>(
+                        nFrom, nodeIdx+1, bid, a_g, b_g, Lfront));
+                    ++nodeIdx;                       // mid = observation node
+                    ++obsCount;
+                    obsNodes.append(nodeIdx);
+                    obsLabels.append(QString("P%1").arg(obsCount));
+                    solver.addBranch(std::make_shared<TL_EmptyCavity>(
+                        nodeIdx, nodeIdx+1, branchId++, a_g, b_g, Lback));
+                    ++nodeIdx;
+                } else {
+                    solver.addBranch(std::make_shared<TL_EmptyCavity>(
+                        nFrom, nodeIdx+1, bid,
+                        a_g, b_g, ep.L_cavity_mm*1e-3));
+                    ++nodeIdx;
+                }
                 break;
 
-            // Series cavity (dielectric-loaded TL)
+            // Series cavity (dielectric-loaded TL). [P2] Same optional split;
+            // both halves share the parent cavity's h_safe and eps_r.
             case ElementType::DielectricCavity:
             {
                 double h_safe = std::clamp(ep.h_dielectric_mm*1e-3, 1e-6, b_g*0.999);
-                solver.addBranch(std::make_shared<TL_DielectricCavity>(
-                    nFrom, nodeIdx+1, bid,
-                    a_g, b_g, ep.L_cavity_mm*1e-3, h_safe, ep.eps_r));
-                ++nodeIdx;
+                if(ep.has_internal_obs && ep.obs_offset_mm > 0.0){
+                    const double Lfront = ep.obs_offset_mm * 1e-3;
+                    const double Lback  = (ep.L_cavity_mm - ep.obs_offset_mm) * 1e-3;
+                    solver.addBranch(std::make_shared<TL_DielectricCavity>(
+                        nFrom, nodeIdx+1, bid, a_g, b_g, Lfront, h_safe, ep.eps_r));
+                    ++nodeIdx;                       // mid = observation node
+                    ++obsCount;
+                    obsNodes.append(nodeIdx);
+                    obsLabels.append(QString("P%1").arg(obsCount));
+                    solver.addBranch(std::make_shared<TL_DielectricCavity>(
+                        nodeIdx, nodeIdx+1, branchId++, a_g, b_g, Lback, h_safe, ep.eps_r));
+                    ++nodeIdx;
+                } else {
+                    solver.addBranch(std::make_shared<TL_DielectricCavity>(
+                        nFrom, nodeIdx+1, bid,
+                        a_g, b_g, ep.L_cavity_mm*1e-3, h_safe, ep.eps_r));
+                    ++nodeIdx;
+                }
                 break;
             }
 

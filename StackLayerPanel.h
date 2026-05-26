@@ -372,11 +372,14 @@ private:
                 .arg(fmt(p.w_slot_mm, 2))
                 .arg(fmt(p.tau_cover_mm, 2));
 
-        case ElementType::EmptyCavity:
-            return QString("L = %1 mm").arg(fmt(p.L_cavity_mm, 1));
-
-        case ElementType::DielectricCavity:
-            return QString(
+        case ElementType::EmptyCavity: {
+            QString s = QString("L = %1 mm").arg(fmt(p.L_cavity_mm, 1));
+            if (p.has_internal_obs)
+                s += QString("\nobs @ %1 mm").arg(fmt(p.obs_offset_mm, 1));
+            return s;
+        }
+        case ElementType::DielectricCavity: {
+            QString s = QString(
                        "L = %1 mm\n"
                        "h_diel = %2 mm\n"
                        "\u03b5\u1d63 = %3"
@@ -384,6 +387,10 @@ private:
                 .arg(fmt(p.L_cavity_mm, 1))
                 .arg(fmt(p.h_dielectric_mm, 2))
                 .arg(fmt(p.eps_r, 2));
+            if (p.has_internal_obs)
+                s += QString("\nobs @ %1 mm").arg(fmt(p.obs_offset_mm, 1));
+            return s;
+        }
 
         case ElementType::Load:
             // Show Z_L in instrument shorthand, e.g. "Z_L = 1.00e+09 + j0 \u03a9"
