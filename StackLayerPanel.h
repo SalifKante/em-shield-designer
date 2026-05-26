@@ -311,14 +311,14 @@ private:
 
     static QString displayTypeName(ElementType t) {
         switch (t) {
-        case ElementType::Source:            return QStringLiteral("SOURCE");
-        case ElementType::Aperture:          return QStringLiteral("APERTURE");
-        case ElementType::ApertureWithCover: return QStringLiteral("AP+COVER");
-        case ElementType::EmptyCavity:       return QStringLiteral("CAVITY");
-        case ElementType::DielectricCavity:  return QStringLiteral("DIEL.CAV");
-        case ElementType::Load:              return QStringLiteral("OBS.PT");
+        case ElementType::Source:            return tr("SOURCE");
+        case ElementType::Aperture:          return tr("APERTURE");
+        case ElementType::ApertureWithCover: return tr("AP+COVER");
+        case ElementType::EmptyCavity:       return tr("CAVITY");
+        case ElementType::DielectricCavity:  return tr("DIEL.CAV");
+        case ElementType::Load:              return tr("OBS.PT");
         }
-        return QStringLiteral("ELEMENT");
+        return tr("ELEMENT");
     }
 
     // ── Parameter text formatter ─────────────────────────────────────
@@ -344,7 +344,7 @@ private:
     static QString buildParamText(const ElementParams& p) {
         switch (p.type) {
         case ElementType::Source:
-            return QString(
+            return tr(
                        "E\u2080 = %1 V/m\n"
                        "f: %2 \u2013 %3 GHz   (%4 pts)\n"
                        "a\u00d7b = %5\u00d7%6 mm\n"
@@ -359,12 +359,12 @@ private:
                 .arg(fmt(p.t_wall_mm, 2));
 
         case ElementType::Aperture:
-            return QString("l\u00d7w = %1\u00d7%2 mm")
+            return tr("l\u00d7w = %1\u00d7%2 mm")
                 .arg(fmt(p.l_slot_mm, 1))
                 .arg(fmt(p.w_slot_mm, 2));
 
         case ElementType::ApertureWithCover:
-            return QString(
+            return tr(
                        "l\u00d7w = %1\u00d7%2 mm\n"
                        "\u03c4 gap = %3 mm"
                        )
@@ -373,13 +373,13 @@ private:
                 .arg(fmt(p.tau_cover_mm, 2));
 
         case ElementType::EmptyCavity: {
-            QString s = QString("L = %1 mm").arg(fmt(p.L_cavity_mm, 1));
+            QString s = tr("L = %1 mm").arg(fmt(p.L_cavity_mm, 1));
             if (p.has_internal_obs)
-                s += QString("\nobs @ %1 mm").arg(fmt(p.obs_offset_mm, 1));
+                s += "\n" + tr("obs @ %1 mm").arg(fmt(p.obs_offset_mm, 1));
             return s;
         }
         case ElementType::DielectricCavity: {
-            QString s = QString(
+            QString s = tr(
                        "L = %1 mm\n"
                        "h_diel = %2 mm\n"
                        "\u03b5\u1d63 = %3"
@@ -388,16 +388,16 @@ private:
                 .arg(fmt(p.h_dielectric_mm, 2))
                 .arg(fmt(p.eps_r, 2));
             if (p.has_internal_obs)
-                s += QString("\nobs @ %1 mm").arg(fmt(p.obs_offset_mm, 1));
+                s += "\n" + tr("obs @ %1 mm").arg(fmt(p.obs_offset_mm, 1));
             return s;
         }
 
         case ElementType::Load:
             // Show Z_L in instrument shorthand, e.g. "Z_L = 1.00e+09 + j0 \u03a9"
             if (p.ZL_imag == 0.0) {
-                return QString("Z_L = %1 \u03a9").arg(fmtImp(p.ZL_real));
+                return tr("Z_L = %1 \u03a9").arg(fmtImp(p.ZL_real));
             }
-            return QString("Z_L = %1 %2 j%3 \u03a9")
+            return tr("Z_L = %1 %2 j%3 \u03a9")
                 .arg(fmtImp(p.ZL_real))
                 .arg(p.ZL_imag >= 0.0 ? QStringLiteral("+") : QStringLiteral("\u2212"))
                 .arg(fmtImp(std::abs(p.ZL_imag)));
@@ -424,7 +424,7 @@ public:
         root->setSpacing(0);
 
         // ── Header (sticky) ───────────────────────────────────────────
-        auto* header = new QLabel(QStringLiteral("EQUIVALENT CIRCUIT LAYERS"), this);
+        auto* header = new QLabel(tr("EQUIVALENT CIRCUIT LAYERS"), this);
         header->setStyleSheet(QString(
                                   "QLabel{"
                                   "background:%1;"
@@ -470,7 +470,7 @@ public:
 
         // ── Empty-state label ────────────────────────────────────────
         emptyLabel_ = new QLabel(
-            QStringLiteral(
+            tr(
                 "No elements yet.\n\n"
                 "Drop elements onto the canvas\n"
                 "to see them stack here."),

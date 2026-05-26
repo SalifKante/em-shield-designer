@@ -60,7 +60,7 @@ public:
         m_blockSignals = true;
         m_currentIndex = index;
 
-        m_lblTitle->setText(QString("Section %1 Properties").arg(index + 1));
+        m_lblTitle->setText(tr("Section %1 Properties").arg(index + 1));
 
         // Cavity
         m_spinDepth->setValue(data.depth_mm);
@@ -98,7 +98,7 @@ public:
     void clearSelection()
     {
         m_currentIndex = -1;
-        m_lblTitle->setText("No Section Selected");
+        m_lblTitle->setText(tr("No Section Selected"));
         setEnabled(false);
     }
 
@@ -119,13 +119,13 @@ private:
         mainLayout->setSpacing(8);
 
         // Title
-        m_lblTitle = new QLabel("No Section Selected");
+        m_lblTitle = new QLabel(tr("No Section Selected"));
         m_lblTitle->setStyleSheet(
             "font-weight: bold; font-size: 12px; color: #1e3a5f;");
         mainLayout->addWidget(m_lblTitle);
 
         // ---- Cavity ----
-        QGroupBox* grpCavity = new QGroupBox("Cavity");
+        QGroupBox* grpCavity = new QGroupBox(tr("Cavity"));
         QVBoxLayout* cavLayout = new QVBoxLayout;
         cavLayout->setSpacing(4);
 
@@ -142,16 +142,16 @@ private:
         //   L > 0.1 mm (1e-4 m), and SectionConfig::isValid requires
         //   depth > 0 and obs_position strictly inside (0, depth). The new
         //   floor leaves a 10x safety margin above the engine's hard limit.
-        addSpinRow(cavLayout, "Depth:", m_spinDepth,
+        addSpinRow(cavLayout, tr("Depth:"), m_spinDepth,
                    1.0, 2000.0, 300.0, " mm", 1);
 
         // obs_position minimum is 0.1 mm (strictly positive) because
         // SectionConfig::isValid() rejects obs_position == 0 — it would
         // produce a zero-length TL segment rejected by TL_EmptyCavity.
-        addSpinRow(cavLayout, "Obs position:", m_spinObsPos,
+        addSpinRow(cavLayout, tr("Obs position:"), m_spinObsPos,
                    0.1, 2000.0, 150.0, " mm", 1);
 
-        m_chkObservation = new QCheckBox("Has observation point");
+        m_chkObservation = new QCheckBox(tr("Has observation point"));
         m_chkObservation->setChecked(true);
         cavLayout->addWidget(m_chkObservation);
 
@@ -160,60 +160,60 @@ private:
 
         // ---- Width override (STAR_BRANCH) ----
         // 0.0 is the sentinel for "use global a" (maps to section_width_a_mm = -1)
-        QGroupBox* grpWidth = new QGroupBox("Width Override (STAR_BRANCH)");
+        QGroupBox* grpWidth = new QGroupBox(tr("Width Override (STAR_BRANCH)"));
         QVBoxLayout* widthLayout = new QVBoxLayout;
         widthLayout->setSpacing(4);
 
-        QLabel* lblWidthHint = new QLabel(
+        QLabel* lblWidthHint = new QLabel(tr(
             "Set > 0 to override the global enclosure\n"
             "width for this section (Fig. 3.11).\n"
-            "0 = use global a.");
+            "0 = use global a."));
         lblWidthHint->setStyleSheet("color: #555; font-size: 9px;");
         lblWidthHint->setWordWrap(true);
         widthLayout->addWidget(lblWidthHint);
 
-        addSpinRow(widthLayout, "Width (a):", m_spinWidthA,
+        addSpinRow(widthLayout, tr("Width (a):"), m_spinWidthA,
                    0.0, 2000.0, 0.0, " mm", 1);
 
         grpWidth->setLayout(widthLayout);
         mainLayout->addWidget(grpWidth);
 
         // ---- Aperture ----
-        QGroupBox* grpAperture = new QGroupBox("Aperture");
+        QGroupBox* grpAperture = new QGroupBox(tr("Aperture"));
         QVBoxLayout* apLayout = new QVBoxLayout;
         apLayout->setSpacing(4);
 
-        addSpinRow(apLayout, "Width (l):",  m_spinApL,
+        addSpinRow(apLayout, tr("Width (l):"),  m_spinApL,
                    1.0, 500.0, 80.0, " mm", 1);
-        addSpinRow(apLayout, "Height (w):", m_spinApW,
+        addSpinRow(apLayout, tr("Height (w):"), m_spinApW,
                    1.0, 500.0, 80.0, " mm", 1);
 
         grpAperture->setLayout(apLayout);
         mainLayout->addWidget(grpAperture);
 
         // ---- Cover ----
-        QGroupBox* grpCover = new QGroupBox("Aperture Cover");
+        QGroupBox* grpCover = new QGroupBox(tr("Aperture Cover"));
         QVBoxLayout* covLayout = new QVBoxLayout;
         covLayout->setSpacing(4);
 
-        m_chkCover = new QCheckBox("Enable cover");
+        m_chkCover = new QCheckBox(tr("Enable cover"));
         covLayout->addWidget(m_chkCover);
 
-        addSpinRow(covLayout, "Gap (τ):", m_spinCoverGap,
+        addSpinRow(covLayout, tr("Gap (τ):"), m_spinCoverGap,
                    0.01, 50.0, 1.0, " mm", 2);
         m_spinCoverGap->setEnabled(false);
 
         // cover_eps_r: 1.0 → air gap Eq.(3.22); > 1.0 → dielectric Eq.(3.24)
-        addSpinRow(covLayout, "Gap εr:", m_spinCoverEpsR,
+        addSpinRow(covLayout, tr("Gap εr:"), m_spinCoverEpsR,
                    1.0, 100.0, 1.0, "", 2);
         m_spinCoverEpsR->setEnabled(false);
-        m_spinCoverEpsR->setToolTip(
+        m_spinCoverEpsR->setToolTip(tr(
             "Relative permittivity of the cover gap filler.\n"
             "1.0 = air gap  → uses Eq. (3.22).\n"
-            "> 1.0 = dielectric filler → uses Eq. (3.24).");
+            "> 1.0 = dielectric filler → uses Eq. (3.24)."));
 
         // Equation hint label — updates dynamically
-        m_lblCoverEq = new QLabel("Eq. (3.22) — air gap");
+        m_lblCoverEq = new QLabel(tr("Eq. (3.22) — air gap"));
         m_lblCoverEq->setStyleSheet("color: #666; font-size: 9px;");
         m_lblCoverEq->setEnabled(false);
         covLayout->addWidget(m_lblCoverEq);
@@ -222,14 +222,14 @@ private:
         mainLayout->addWidget(grpCover);
 
         // ---- Dielectric fill ----
-        QGroupBox* grpDiel = new QGroupBox("Dielectric Fill");
+        QGroupBox* grpDiel = new QGroupBox(tr("Dielectric Fill"));
         QVBoxLayout* dielLayout = new QVBoxLayout;
         dielLayout->setSpacing(4);
 
-        m_chkDielectric = new QCheckBox("Enable dielectric");
+        m_chkDielectric = new QCheckBox(tr("Enable dielectric"));
         dielLayout->addWidget(m_chkDielectric);
 
-        addSpinRow(dielLayout, "Height (h):", m_spinDielH,
+        addSpinRow(dielLayout, tr("Height (h):"), m_spinDielH,
                    0.1, 500.0, 60.0, " mm", 1);
         // dielectric_er minimum is 1.0, matching SectionConfig::isValid()
         addSpinRow(dielLayout, "εr:", m_spinDielEr,
@@ -327,9 +327,9 @@ private:
         if (!m_lblCoverEq) return;
         if (eps_r > 1.0 + 1e-9)
             m_lblCoverEq->setText(
-                QString("Eq. (3.24) — dielectric  εr = %1").arg(eps_r, 0, 'f', 2));
+                tr("Eq. (3.24) — dielectric  εr = %1").arg(eps_r, 0, 'f', 2));
         else
-            m_lblCoverEq->setText("Eq. (3.22) — air gap");
+            m_lblCoverEq->setText(tr("Eq. (3.22) — air gap"));
     }
 
     // -----------------------------------------------------------------------

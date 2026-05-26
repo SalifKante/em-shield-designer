@@ -444,7 +444,7 @@ public:
         setMinimumHeight(30);
         setMaximumHeight(30);
         setCursor(Qt::OpenHandCursor);
-        setToolTip(QString("Drag %1 onto canvas").arg(n));
+        setToolTip(tr("Drag %1 onto canvas").arg(n));
         setStyleSheet(EMStyle::elementButtonQSS(c));
         // Buttons must not steal focus from the canvas / property editor
         // when the user clicks them — they only initiate drag.
@@ -759,7 +759,7 @@ public:
                                           .arg(EMStyle::rgba(CBStyle::TEXT, 220))
                                           .arg(EMStyle::rgb(CBStyle::TEXT)));
         zoomIndicator_->setAlignment(Qt::AlignCenter);
-        zoomIndicator_->setText(QStringLiteral("Zoom: 100%"));
+        zoomIndicator_->setText(tr("Zoom: 100%"));
         zoomIndicator_->adjustSize();
         zoomIndicator_->hide();
 
@@ -875,7 +875,7 @@ private:
     void showZoomIndicator() {
         if (!zoomIndicator_) return;
         zoomIndicator_->setText(
-            QStringLiteral("Zoom: %1%").arg(int(std::round(zoomFactor_ * 100.0))));
+            tr("Zoom: %1%").arg(int(std::round(zoomFactor_ * 100.0))));
         zoomIndicator_->adjustSize();
         repositionZoomIndicator();
         zoomIndicator_->raise();
@@ -1010,11 +1010,11 @@ public:
                           .arg(CBStyle::TEXT.red()).arg(CBStyle::TEXT.green()).arg(CBStyle::TEXT.blue()));
         auto* l=new QVBoxLayout(this); l->setContentsMargins(10,10,10,8); l->setSpacing(4);
 
-        headerLabel_=new QLabel("PROPERTIES",this);
+        headerLabel_=new QLabel(tr("PROPERTIES"),this);
         headerLabel_->setStyleSheet(dimLabel());
         l->addWidget(headerLabel_);
 
-        typeLabel_=new QLabel("No element selected",this);
+        typeLabel_=new QLabel(tr("No element selected"),this);
         typeLabel_->setStyleSheet(mutedLabel());
         l->addWidget(typeLabel_);
 
@@ -1026,7 +1026,7 @@ public:
         scrollArea_->setWidget(formWidget_); l->addWidget(scrollArea_);
 
         // [FIX-B4] Correct 5-element circuit matching Phase A (Fig. 3.7)
-        placeholderLabel_=new QLabel(
+        placeholderLabel_=new QLabel(tr(
             "  CORRECT CIRCUIT:\n\n"
             "  1. [Source]\n"
             "       a, b, t_wall,\n"
@@ -1053,7 +1053,7 @@ public:
             "  Use Arrange after\n"
             "  dropping elements.\n\n"
             "  Click element to\n"
-            "  edit its params.",this);
+            "  edit its params."),this);
         placeholderLabel_->setStyleSheet(dimLabel()+" font-size:10px;");
         placeholderLabel_->setAlignment(Qt::AlignLeft);
         l->addWidget(placeholderLabel_);
@@ -1090,72 +1090,72 @@ public slots:
 
         // [T1.2-E] Explicit [this] captures throughout. The fn callbacks
         // are captured by value (default behaviour for std::function).
-        addLineEdit("Label:", el->params.label,
+        addLineEdit(tr("Label:"), el->params.label,
                     [this](const QString& v){ currentElement_->params.label = v; currentElement_->update(); });
 
         switch(el->params.type){
         case ElementType::Source:
-            addDouble("E₀ [V/m]:",     el->params.E0,         0.01,  1000,  0.1,
+            addDouble(tr("E₀ [V/m]:"),     el->params.E0,         0.01,  1000,  0.1,
                       [this](double v){ currentElement_->params.E0 = v; });
             // [FIX-B1] min=0.0001 GHz = 100 kHz — allows Phase A's 1 MHz start
-            addDouble("f start [GHz]:", el->params.freqStart, 0.0001, 100, 0.001,
+            addDouble(tr("f start [GHz]:"), el->params.freqStart, 0.0001, 100, 0.001,
                       [this](double v){ currentElement_->params.freqStart = v; });
-            addDouble("f end [GHz]:",  el->params.freqEnd,    0.1,    100, 1.0,
+            addDouble(tr("f end [GHz]:"),  el->params.freqEnd,    0.1,    100, 1.0,
                       [this](double v){ currentElement_->params.freqEnd = v; });
-            addInt   ("Points:",       el->params.freqPoints, 10,    2000, 50,
+            addInt   (tr("Points:"),       el->params.freqPoints, 10,    2000, 50,
                    [this](int v)   { currentElement_->params.freqPoints = v; });
-            addSep("Cross-section (shared by all):");
-            addDouble("a [mm]:",       el->params.a_mm,       1.0,  1000.0, 5.0,
+            addSep(tr("Cross-section (shared by all):"));
+            addDouble(tr("a [mm]:"),       el->params.a_mm,       1.0,  1000.0, 5.0,
                       [this](double v){ currentElement_->params.a_mm = v; }, 1);
-            addDouble("b [mm]:",       el->params.b_h_mm,     1.0,  1000.0, 5.0,
+            addDouble(tr("b [mm]:"),       el->params.b_h_mm,     1.0,  1000.0, 5.0,
                       [this](double v){ currentElement_->params.b_h_mm = v; }, 1);
-            addDouble("t_wall [mm]:",  el->params.t_wall_mm,  0.1,  100.0,  0.1,
+            addDouble(tr("t_wall [mm]:"),  el->params.t_wall_mm,  0.1,  100.0,  0.1,
                       [this](double v){ currentElement_->params.t_wall_mm = v; }, 2);
             break;
         case ElementType::Aperture:
-            addDouble("l_slot [mm]:", el->params.l_slot_mm, 1.0,  1000.0, 2.0,
+            addDouble(tr("l_slot [mm]:"), el->params.l_slot_mm, 1.0,  1000.0, 2.0,
                       [this](double v){ currentElement_->params.l_slot_mm = v; }, 1);
-            addDouble("w_slot [mm]:", el->params.w_slot_mm, 0.1,  100.0,  0.5,
+            addDouble(tr("w_slot [mm]:"), el->params.w_slot_mm, 0.1,  100.0,  0.5,
                       [this](double v){ currentElement_->params.w_slot_mm = v; }, 2);
             break;
         case ElementType::ApertureWithCover:
-            addDouble("l_slot [mm]:", el->params.l_slot_mm,   1.0,  1000.0, 2.0,
+            addDouble(tr("l_slot [mm]:"), el->params.l_slot_mm,   1.0,  1000.0, 2.0,
                       [this](double v){ currentElement_->params.l_slot_mm = v; }, 1);
-            addDouble("w_slot [mm]:", el->params.w_slot_mm,   0.1,  100.0,  0.5,
+            addDouble(tr("w_slot [mm]:"), el->params.w_slot_mm,   0.1,  100.0,  0.5,
                       [this](double v){ currentElement_->params.w_slot_mm = v; }, 2);
-            addDouble("τ gap [mm]:",  el->params.tau_cover_mm, 0.1, 10.0,   0.1,
+            addDouble(tr("τ gap [mm]:"),  el->params.tau_cover_mm, 0.1, 10.0,   0.1,
                       [this](double v){ currentElement_->params.tau_cover_mm = v; }, 2);
             break;
         case ElementType::EmptyCavity: {
-            addDouble("L [mm]:", el->params.L_cavity_mm, 1.0, 2000.0, 10.0,
+            addDouble(tr("L [mm]:"), el->params.L_cavity_mm, 1.0, 2000.0, 10.0,
                       [this](double v){ currentElement_->params.L_cavity_mm = v; }, 1);
             // [P2] Optional internal observation split.
-            auto* obsChk = addCheckBox("Has internal observation", el->params.has_internal_obs,
+            auto* obsChk = addCheckBox(tr("Has internal observation"), el->params.has_internal_obs,
                       [this](bool on){ currentElement_->params.has_internal_obs = on; });
-            auto* offSpin = addDouble("obs offset [mm]:", el->params.obs_offset_mm, 0.1, 2000.0, 1.0,
+            auto* offSpin = addDouble(tr("obs offset [mm]:"), el->params.obs_offset_mm, 0.1, 2000.0, 1.0,
                       [this](double v){ currentElement_->params.obs_offset_mm = v; }, 1);
             offSpin->setEnabled(el->params.has_internal_obs);
             connect(obsChk, &QCheckBox::toggled, offSpin, &QWidget::setEnabled);
             break;
         }
         case ElementType::DielectricCavity: {
-            addDouble("L [mm]:",      el->params.L_cavity_mm,     1.0,  2000.0, 10.0,
+            addDouble(tr("L [mm]:"),      el->params.L_cavity_mm,     1.0,  2000.0, 10.0,
                       [this](double v){ currentElement_->params.L_cavity_mm = v; }, 1);
-            addDouble("h_diel [mm]:", el->params.h_dielectric_mm, 0.1,  1000.0, 1.0,
+            addDouble(tr("h_diel [mm]:"), el->params.h_dielectric_mm, 0.1,  1000.0, 1.0,
                       [this](double v){ currentElement_->params.h_dielectric_mm = v; }, 2);
             addDouble("ε_r:",        el->params.eps_r,         1.0,   100.0, 0.5,
                       [this](double v){ currentElement_->params.eps_r = v; });
             // [P2] Optional internal observation split.
-            auto* obsChk = addCheckBox("Has internal observation", el->params.has_internal_obs,
+            auto* obsChk = addCheckBox(tr("Has internal observation"), el->params.has_internal_obs,
                       [this](bool on){ currentElement_->params.has_internal_obs = on; });
-            auto* offSpin = addDouble("obs offset [mm]:", el->params.obs_offset_mm, 0.1, 2000.0, 1.0,
+            auto* offSpin = addDouble(tr("obs offset [mm]:"), el->params.obs_offset_mm, 0.1, 2000.0, 1.0,
                       [this](double v){ currentElement_->params.obs_offset_mm = v; }, 1);
             offSpin->setEnabled(el->params.has_internal_obs);
             connect(obsChk, &QCheckBox::toggled, offSpin, &QWidget::setEnabled);
             break;
         }
         case ElementType::Load:
-            addInfo("SHUNT observation tap.\n"
+            addInfo(tr("SHUNT observation tap.\n"
                     "SE at this node (Eq. 3.8):\n"
                     "SE=-20·log₁₀|2U/V₀|\n\n"
                     "Z_L >> Z₀ = non-loading.\n"
@@ -1171,7 +1171,7 @@ public slots:
                     "For an obs point inside\n"
                     "a cavity, enable that\n"
                     "cavity's internal\n"
-                    "observation offset.");
+                    "observation offset."));
             // [FIX-D4] max=1e10 covers the 1e9 default; step=1e6 for navigation
             addDouble("Z_L real [Ω]:", el->params.ZL_real,  0.001,    1.0e10, 1.0e6,
                       [this](double v){ currentElement_->params.ZL_real = v; });
@@ -1411,7 +1411,7 @@ class CircuitBuilderWindow : public QMainWindow {
 
 public:
     explicit CircuitBuilderWindow(QWidget* p=nullptr) : QMainWindow(p) {
-        setWindowTitle("Circuit Builder — EMShieldDesigner");
+        setWindowTitle(tr("Circuit Builder — EMShieldDesigner"));
         setMinimumSize(1200,720); resize(1440,860);
         applyGlobalStyle(); buildUI(); connectSignals();
     }
@@ -1530,18 +1530,18 @@ private:
         elementsLayout->setContentsMargins(10, 4, 10, 8);
         elementsLayout->setSpacing(4);
 
-        auto* elementsHeader = new QLabel("ELEMENTS", elementsSection);
+        auto* elementsHeader = new QLabel(tr("ELEMENTS"), elementsSection);
         elementsHeader->setStyleSheet(EMStyle::sectionHeaderQSS());
         elementsLayout->addWidget(elementsHeader);
 
         struct PSpec { ElementType t; QString n; QColor c; };
         const QVector<PSpec> palette = {
-                                        { ElementType::Source,            "Source",   CBStyle::ORANGE },
-                                        { ElementType::Aperture,          "Aperture", CBStyle::ACCENT },
-                                        { ElementType::ApertureWithCover, "AP+Cover", CBStyle::ACCENT },
-                                        { ElementType::EmptyCavity,       "Cavity",   CBStyle::GREEN  },
-                                        { ElementType::DielectricCavity,  "Diel.Cav", CBStyle::GREEN  },
-                                        { ElementType::Load,              "Obs.Pt",   CBStyle::RED    },
+                                        { ElementType::Source,            tr("Source"),   CBStyle::ORANGE },
+                                        { ElementType::Aperture,          tr("Aperture"), CBStyle::ACCENT },
+                                        { ElementType::ApertureWithCover, tr("AP+Cover"), CBStyle::ACCENT },
+                                        { ElementType::EmptyCavity,       tr("Cavity"),   CBStyle::GREEN  },
+                                        { ElementType::DielectricCavity,  tr("Diel.Cav"), CBStyle::GREEN  },
+                                        { ElementType::Load,              tr("Obs.Pt"),   CBStyle::RED    },
                                         };
         for (const auto& s : palette) {
             auto* btn = new PaletteButton(s.t, s.n, s.c, elementsSection);
@@ -1557,13 +1557,13 @@ private:
         actionsLayout->setContentsMargins(10, 4, 10, 4);
         actionsLayout->setSpacing(4);
 
-        auto* actionsHeader = new QLabel("ACTIONS", actionsSection);
+        auto* actionsHeader = new QLabel(tr("ACTIONS"), actionsSection);
         actionsHeader->setStyleSheet(EMStyle::sectionHeaderQSS());
         actionsLayout->addWidget(actionsHeader);
 
-        btnArrange_ = makeActionButton("Arrange",    EMStyle::AccentRole::Neutral, actionsSection);
-        btnDelete_  = makeActionButton("Delete",     EMStyle::AccentRole::Danger,  actionsSection);
-        btnClear_   = makeActionButton("Clear",      EMStyle::AccentRole::Source,  actionsSection);
+        btnArrange_ = makeActionButton(tr("Arrange"),    EMStyle::AccentRole::Neutral, actionsSection);
+        btnDelete_  = makeActionButton(tr("Delete"),     EMStyle::AccentRole::Danger,  actionsSection);
+        btnClear_   = makeActionButton(tr("Clear"),      EMStyle::AccentRole::Source,  actionsSection);
         actionsLayout->addWidget(btnArrange_);
         actionsLayout->addWidget(btnDelete_);
         actionsLayout->addWidget(btnClear_);
@@ -1608,7 +1608,7 @@ private:
                                         ).arg(EMStyle::rgb(CBStyle::RED)));
         validityLayout->addWidget(validityDot_);
 
-        validityLabel_ = new QLabel(QStringLiteral("Empty canvas"), validityRow_);
+        validityLabel_ = new QLabel(tr("Empty canvas"), validityRow_);
         validityLabel_->setStyleSheet(QString(
                                           "QLabel{"
                                           "color:%1;"
@@ -1623,13 +1623,13 @@ private:
 
         primaryLayout->addWidget(validityRow_);
 
-        btnCompute_ = new QPushButton("COMPUTE", primarySection);
+        btnCompute_ = new QPushButton(tr("COMPUTE"), primarySection);
         btnCompute_->setMinimumHeight(38);
         btnCompute_->setStyleSheet(EMStyle::primaryButtonQSS(EMStyle::accentFor(EMStyle::AccentRole::Primary)));
         btnCompute_->setCursor(Qt::PointingHandCursor);
         primaryLayout->addWidget(btnCompute_);
 
-        btnExport_ = makeActionButton("Export CSV", EMStyle::AccentRole::Neutral, primarySection);
+        btnExport_ = makeActionButton(tr("Export CSV"), EMStyle::AccentRole::Neutral, primarySection);
         primaryLayout->addWidget(btnExport_);
 
         root->addWidget(primarySection);
@@ -1711,10 +1711,10 @@ private:
         setCentralWidget(mainSpl);
 
         // ── Status bar ────────────────────────────────────────────
-        statusLbl_ = new QLabel(
+        statusLbl_ = new QLabel(tr(
             "Ready  —  correct order: "
             "[Source]→[Aperture]→[Cavity(p)]→[Obs.Pt]→[Cavity(d-p)]  |  "
-            "Last Cavity auto-terminates to ground  |  Compute");
+            "Last Cavity auto-terminates to ground  |  Compute"));
         statusLbl_->setStyleSheet(QString("color:rgb(%1,%2,%3);")
                                       .arg(CBStyle::TEXT_MUTED.red()).arg(CBStyle::TEXT_MUTED.green()).arg(CBStyle::TEXT_MUTED.blue()));
         statusBar()->addWidget(statusLbl_);
@@ -1727,12 +1727,12 @@ private:
     void setupPlot() {
         m_plot->plotLayout()->insertRow(0);
         auto* title = new QCPTextElement(m_plot,
-                                         "Circuit Builder — Shielding Effectiveness",
+                                         tr("Circuit Builder — Shielding Effectiveness"),
                                          QFont("sans-serif", 11, QFont::Bold));
         m_plot->plotLayout()->addElement(0, 0, title);
 
-        m_plot->xAxis->setLabel("Frequency [GHz]");
-        m_plot->yAxis->setLabel("SE [dB]");
+        m_plot->xAxis->setLabel(tr("Frequency [GHz]"));
+        m_plot->yAxis->setLabel(tr("SE [dB]"));
         m_plot->xAxis->setRange(0.0, 32.0);
         m_plot->yAxis->setRange(0.0, 120.0);
 
@@ -1773,7 +1773,7 @@ private:
                 [this]{
                     canvas_->clearAll();
                     clearPlot();
-                    setStatus("Canvas cleared — drag elements to build a new circuit.",
+                    setStatus(tr("Canvas cleared — drag elements to build a new circuit."),
                               CBStyle::TEXT_MUTED);
                 });
         connect(btnCompute_, &QPushButton::clicked, this,
@@ -1787,8 +1787,8 @@ private:
                     auto* el = canvas_->addElement(t, pos);
                     propPanel_->showElement(el);
                     setStatus(
-                        QString("Added: %1  |  Arrange left→right: "
-                                "Source → Aperture → Cavity → Obs.Pt").arg(el->params.label),
+                        tr("Added: %1  |  Arrange left→right: "
+                           "Source → Aperture → Cavity → Obs.Pt").arg(el->params.label),
                         CBStyle::ACCENT);
                 });
         connect(canvas_, &AssemblyCanvas::elementSelected, this,
@@ -1981,19 +1981,19 @@ private:
     // ─── Brief message — for the status row dot label ──────────
     static QString validationBrief(ValidationCode c) {
         switch (c) {
-        case ValidationCode::Ok:                  return QStringLiteral("Circuit valid");
-        case ValidationCode::EmptyCanvas:         return QStringLiteral("Empty canvas");
-        case ValidationCode::SourceMissing:       return QStringLiteral("Source missing");
-        case ValidationCode::SourceMultiple:      return QStringLiteral("Multiple Sources");
-        case ValidationCode::SourceNotFirst:      return QStringLiteral("Source must be first");
-        case ValidationCode::ObsMissing:          return QStringLiteral("Obs.Pt missing");
-        case ValidationCode::ObsMultiple:         return QStringLiteral("Multiple Obs.Pts");
-        case ValidationCode::ObsNotLast:          return QStringLiteral("Obs.Pt must be last");
-        case ValidationCode::ApertureMissing:     return QStringLiteral("Aperture missing");
-        case ValidationCode::CavityMissing:       return QStringLiteral("Cavity missing");
-        case ValidationCode::UnbalancedSections:  return QStringLiteral("Unbalanced sections");
-        case ValidationCode::PatternViolation:    return QStringLiteral("Invalid order");
-        case ValidationCode::CavityObsOffsetRange:return QStringLiteral("Obs offset out of range");
+        case ValidationCode::Ok:                  return tr("Circuit valid");
+        case ValidationCode::EmptyCanvas:         return tr("Empty canvas");
+        case ValidationCode::SourceMissing:       return tr("Source missing");
+        case ValidationCode::SourceMultiple:      return tr("Multiple Sources");
+        case ValidationCode::SourceNotFirst:      return tr("Source must be first");
+        case ValidationCode::ObsMissing:          return tr("Obs.Pt missing");
+        case ValidationCode::ObsMultiple:         return tr("Multiple Obs.Pts");
+        case ValidationCode::ObsNotLast:          return tr("Obs.Pt must be last");
+        case ValidationCode::ApertureMissing:     return tr("Aperture missing");
+        case ValidationCode::CavityMissing:       return tr("Cavity missing");
+        case ValidationCode::UnbalancedSections:  return tr("Unbalanced sections");
+        case ValidationCode::PatternViolation:    return tr("Invalid order");
+        case ValidationCode::CavityObsOffsetRange:return tr("Obs offset out of range");
         }
         return QString();
     }
@@ -2002,73 +2002,73 @@ private:
     QString validationFull(ValidationResult r) const {
         switch (r.code) {
         case ValidationCode::Ok:
-            return QStringLiteral("Circuit topology is valid.");
+            return tr("Circuit topology is valid.");
         case ValidationCode::EmptyCanvas:
-            return QStringLiteral(
+            return tr(
                 "The canvas is empty.\n\n"
                 "Drop elements onto the canvas to build a circuit. "
                 "Minimum legal circuit is:\n"
                 "    Source -> Aperture -> Cavity -> Obs.Pt");
         case ValidationCode::SourceMissing:
-            return QStringLiteral(
+            return tr(
                 "No Source element found.\n\n"
                 "Every circuit needs exactly one Source to provide the "
                 "excitation voltage V0. Drag a Source element onto the canvas.");
         case ValidationCode::SourceMultiple:
-            return QStringLiteral(
+            return tr(
                 "Multiple Source elements found.\n\n"
                 "Only one Source is allowed per circuit. Delete the extras "
                 "so a single excitation V0 drives the chain.");
         case ValidationCode::SourceNotFirst:
-            return QStringLiteral(
+            return tr(
                 "Source is not the leftmost element.\n\n"
                 "The Source must be placed at the leftmost X position because "
                 "the equivalent circuit is read left-to-right starting from V0. "
                 "Move it to the left of all other elements, or click Arrange.");
         case ValidationCode::ObsMissing:
-            return QStringLiteral(
+            return tr(
                 "No Obs.Pt element found.\n\n"
                 "Every circuit needs exactly one Obs.Pt where the shielding "
                 "effectiveness SE = -20 log10|2 U2 / V0| is measured. "
                 "Drag an Obs.Pt element onto the canvas.");
         case ValidationCode::ObsMultiple:
-            return QStringLiteral(
+            return tr(
                 "Multiple Obs.Pt elements found.\n\n"
                 "Only one Obs.Pt is allowed per circuit. Delete the extras.");
         case ValidationCode::ObsNotLast:
-            return QStringLiteral(
+            return tr(
                 "Obs.Pt is not the rightmost element.\n\n"
                 "The Obs.Pt must be placed at the rightmost X position so the "
                 "back-wall short-circuit termination can be appended after it. "
                 "Move it to the right of all other elements, or click Arrange.");
         case ValidationCode::ApertureMissing:
-            return QStringLiteral(
+            return tr(
                 "No Aperture element found.\n\n"
                 "The circuit needs at least one Aperture (or AP+Cover) - the "
                 "coupling element from the external field through the front "
                 "wall into the cavity.");
         case ValidationCode::CavityMissing:
-            return QStringLiteral(
+            return tr(
                 "No Cavity element found.\n\n"
                 "The circuit needs at least one Cavity (or Diel.Cav) section "
                 "behind the aperture to define the waveguide region of the "
                 "enclosure interior.");
         case ValidationCode::UnbalancedSections:
-            return QStringLiteral(
+            return tr(
                 "Each Aperture must be paired with a Cavity.\n\n"
                 "The strict-alternation rule requires the same number of "
                 "Apertures and Cavities (one per section). Currently they "
                 "do not match - add or remove elements until the counts "
                 "are equal.");
         case ValidationCode::PatternViolation:
-            return QStringLiteral(
+            return tr(
                 "Element order is invalid.\n\n"
                 "After the Source, the chain must alternate "
                 "Aperture -> Cavity -> Aperture -> Cavity -> ... and end on a "
                 "Cavity just before the Obs.Pt. Reorder the elements (drag, "
                 "or click Arrange) so the pattern is followed.");
         case ValidationCode::CavityObsOffsetRange:
-            return QStringLiteral(
+            return tr(
                 "Cavity internal observation offset is out of range.\n\n"
                 "When a Cavity has \"Has internal observation\" enabled, the "
                 "offset must lie strictly inside the cavity: greater than 0 and "
@@ -2151,9 +2151,9 @@ private:
             // The full message body carries multi-line guidance from the
             // Task 1.5b validation message bank (validationFull()).
             MessageDialog::error(this,
-                                 QStringLiteral("Circuit topology error"),
+                                 tr("Circuit topology error"),
                                  full);
-            setStatus(QString("Cannot compute — %1.").arg(brief), CBStyle::RED);
+            setStatus(tr("Cannot compute — %1.").arg(brief), CBStyle::RED);
             return;
         }
 
@@ -2286,7 +2286,7 @@ private:
         }
 
         if(obsNodes.isEmpty()){
-            setStatus("No observation nodes built (internal error).",
+            setStatus(tr("No observation nodes built (internal error)."),
                       CBStyle::RED);
             return;
         }
@@ -2359,7 +2359,7 @@ private:
         const double seMin = valid.isEmpty() ? 0.0 : *std::min_element(valid.begin(),valid.end());
         const double seMax = valid.isEmpty() ? 0.0 : *std::max_element(valid.begin(),valid.end());
         setStatus(
-            QString("OK  %1 pts · %2 curve(s) · SE: %3…%4 dB · %5–%6 GHz")
+            tr("OK  %1 pts · %2 curve(s) · SE: %3…%4 dB · %5–%6 GHz")
                 .arg(Np).arg(obsNodes.size())
                 .arg(seMin,0,'f',1).arg(seMax,0,'f',1)
                 .arg(sp.freqStart,0,'f',1).arg(sp.freqEnd,0,'f',1),
@@ -2484,13 +2484,13 @@ private:
         for(auto* tr : m_tracers){ tr->setGraphKey(f_GHz); tr->setVisible(true); }
 
         // Readout text — one line per curve
-        QString text = QString("f = %1 GHz\n").arg(f_GHz, 0, 'f', 4);
+        QString text = tr("f = %1 GHz\n").arg(f_GHz, 0, 'f', 4);
         for(int c=0; c<m_SE_data.size(); ++c){
             const double se  = m_SE_data[c].value(idx, std::numeric_limits<double>::quiet_NaN());
             const QString lb = m_labels.value(c, QString("P%1").arg(c+1));
             text += std::isfinite(se)
-                        ? QString("%1 : %2 dB\n").arg(lb,-10).arg(se,8,'f',2)
-                        : QString("%1 :   ∞ dB\n").arg(lb,-10);
+                        ? tr("%1 : %2 dB\n").arg(lb,-10).arg(se,8,'f',2)
+                        : tr("%1 :   ∞ dB\n").arg(lb,-10);
         }
         text = text.trimmed();
 
@@ -2524,26 +2524,26 @@ private:
         if(m_freqs.isEmpty()){
             MessageDialog::error(
                 this,
-                QStringLiteral("No data to export"),
-                QStringLiteral(
+                tr("No data to export"),
+                tr(
                     "There is no computed SE data to export.\n\n"
                     "Click COMPUTE first to populate the plot, then "
                     "use Export CSV to save the results."));
             return;
         }
         const QString fn = QFileDialog::getSaveFileName(
-            this, "Export CSV", "SE_builder.csv", "CSV (*.csv)");
+            this, tr("Export CSV"), "SE_builder.csv", tr("CSV (*.csv)"));
         if(fn.isEmpty()) return;
 
         std::ofstream f(fn.toStdString());
         if(!f.is_open()){
             MessageDialog::error(
                 this,
-                QStringLiteral("Cannot write file"),
-                QString("The selected file could not be opened for writing:\n\n"
-                        "%1\n\n"
-                        "Check that the destination folder exists and that "
-                        "the file is not currently open in another program.").arg(fn));
+                tr("Cannot write file"),
+                tr("The selected file could not be opened for writing:\n\n"
+                   "%1\n\n"
+                   "Check that the destination folder exists and that "
+                   "the file is not currently open in another program.").arg(fn));
             return;
         }
         f << "f_GHz";
@@ -2556,7 +2556,7 @@ private:
             f << "\n";
         }
         f.close();
-        setStatus("Exported: " + fn, CBStyle::GREEN);
+        setStatus(tr("Exported: ") + fn, CBStyle::GREEN);
 
         // [T1.6] Success popup confirming the saved file path. The status
         // bar already shows "Exported: <path>" in green; the dialog gives
@@ -2564,8 +2564,8 @@ private:
         // form for users who want to navigate to the file.
         MessageDialog::success(
             this,
-            QStringLiteral("Export complete"),
-            QString("CSV saved successfully to:\n\n%1").arg(fn));
+            tr("Export complete"),
+            tr("CSV saved successfully to:\n\n%1").arg(fn));
     }
 
     void setStatus(const QString& msg, QColor col=CBStyle::TEXT_MUTED){

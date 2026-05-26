@@ -33,6 +33,8 @@
 #include <QApplication>
 #include <QIcon>
 #include <QMessageBox>
+#include <QSettings>
+#include <QTranslator>
 
 #include <iostream>
 #include <iomanip>
@@ -277,6 +279,26 @@ int main(int argc, char* argv[])
     app.setApplicationDisplayName("EMShield Designer");
     app.setApplicationVersion("1.0");
     app.setOrganizationName("TUSUR");
+
+    // ── Internationalisation (P3a) ──────────────────────────────────────────
+    // Load the saved UI language and install its translator BEFORE any widget
+    // is constructed. There is no runtime switching — the chosen language is
+    // fixed for the session and a change takes effect on the next launch.
+    // English is the source language, so "en" installs no translator and uses
+    // the source string literals directly. The .qm files are embedded in the
+    // executable resources under :/i18n/ (see qt_add_translations in CMake).
+    // QSettings() with no arguments uses the organization/application names set
+    // above (TUSUR / EMShieldDesigner).
+    {
+        QSettings settings;
+        const QString lang = settings.value("language", "en").toString();
+        if (lang != "en") {
+            auto* translator = new QTranslator(&app);
+            if (translator->load("em-shield-designer_" + lang, ":/i18n"))
+                app.installTranslator(translator);
+        }
+    }
+    // ────────────────────────────────────────────────────────────────────────
 
     // ── APPLICATION ICON ────────────────────────────────────────────────────
     // Embedded via the Qt resource system (resources/resources.qrc).

@@ -6,6 +6,7 @@
 #include <QGraphicsSceneMouseEvent>
 #include <QStyleOptionGraphicsItem>
 #include <QString>
+#include <QCoreApplication>
 #include <cmath>
 
 // ============================================================================
@@ -173,7 +174,7 @@ public:
         // ---- Aperture dimensions ------------------------------------------
         painter->drawText(boxRect.adjusted(4, 22, -4, 0),
                           Qt::AlignHCenter | Qt::AlignTop,
-                          QString("Ap: %1×%2")
+                          QCoreApplication::translate("SectionItem", "Ap: %1×%2")
                               .arg(m_data.aperture_l_mm, 0, 'f', 0)
                               .arg(m_data.aperture_w_mm, 0, 'f', 0));
 
@@ -239,7 +240,8 @@ protected:
 private:
     void updateTooltip() {
         QString tip =
-            QString("Section %1\n"
+            QCoreApplication::translate("SectionItem",
+                    "Section %1\n"
                     "Depth:    %2 mm\n"
                     "Obs pos:  %3 mm\n"
                     "Aperture: %4 × %5 mm")
@@ -250,20 +252,20 @@ private:
                 .arg(m_data.aperture_w_mm,   0, 'f', 1);
 
         if (m_data.has_cover) {
-            tip += QString("\nCover gap: %1 mm")
+            tip += "\n" + QCoreApplication::translate("SectionItem", "Cover gap: %1 mm")
             .arg(m_data.cover_gap_mm, 0, 'f', 2);
             if (m_data.cover_eps_r > 1.0 + 1e-9)
-                tip += QString("  εr=%1 (Eq.3.24)")
+                tip += "  " + QCoreApplication::translate("SectionItem", "εr=%1 (Eq.3.24)")
                            .arg(m_data.cover_eps_r, 0, 'f', 2);
             else
-                tip += "  (air, Eq.3.22)";
+                tip += "  " + QCoreApplication::translate("SectionItem", "(air, Eq.3.22)");
         }
         if (m_data.has_dielectric)
-            tip += QString("\nDielectric: εr=%1, h=%2 mm")
+            tip += "\n" + QCoreApplication::translate("SectionItem", "Dielectric: εr=%1, h=%2 mm")
                        .arg(m_data.dielectric_er,  0, 'f', 2)
                        .arg(m_data.dielectric_h_mm, 0, 'f', 1);
         if (m_data.section_width_a_mm > 0.0)
-            tip += QString("\nWidth override: a=%1 mm")
+            tip += "\n" + QCoreApplication::translate("SectionItem", "Width override: a=%1 mm")
                        .arg(m_data.section_width_a_mm, 0, 'f', 1);
 
         setToolTip(tip);

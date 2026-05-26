@@ -62,7 +62,7 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
     setAttribute(Qt::WA_QuitOnClose, false);
-    setWindowTitle("Quick Simulation — EMShieldDesigner");
+    setWindowTitle(tr("Quick Simulation — EMShieldDesigner"));
     setWindowIcon(QIcon(":/icons/emshield_256.png"));
     resize(1400, 800);
 
@@ -281,16 +281,16 @@ QWidget* MainWindow::buildLeftPanel()
     };
 
     // ── 2. PRESETS section ───────────────────────────────────────────────
-    makeSectionHeader(QStringLiteral("PRESETS"));
+    makeSectionHeader(tr("PRESETS"));
 
     m_cboPreset = makeComboRow(
-        QStringLiteral("Config:"),
-        {"1-Section (baseline)",
-         "2-Section identical",
-         "3-Section identical",
-         "2-Section different",
-         "5-Section cascade",
-         "Custom (edit below)"},
+        tr("Config:"),
+        {tr("1-Section (baseline)"),
+         tr("2-Section identical"),
+         tr("3-Section identical"),
+         tr("2-Section different"),
+         tr("5-Section cascade"),
+         tr("Custom (edit below)")},
         EMStyle::accentFor(EMStyle::AccentRole::Primary));
     m_cboPreset->setItemData(0, 1);
     m_cboPreset->setItemData(1, 2);
@@ -302,60 +302,60 @@ QWidget* MainWindow::buildLeftPanel()
             this, &MainWindow::onPresetChanged);
 
     // ── 3. ENCLOSURE section ─────────────────────────────────────────────
-    makeSectionHeader(QStringLiteral("ENCLOSURE"));
+    makeSectionHeader(tr("ENCLOSURE"));
 
     const QColor accentEnc = EMStyle::accentFor(EMStyle::AccentRole::Primary);
-    m_spinA = makeSpinRow(QStringLiteral("a [mm]:"),     300.0,  10.0, 2000.0, 1.0, 1,
+    m_spinA = makeSpinRow(tr("a [mm]:"),     300.0,  10.0, 2000.0, 1.0, 1,
                           QStringLiteral(" mm"), accentEnc);
-    m_spinB = makeSpinRow(QStringLiteral("b [mm]:"),     120.0,   1.0, 2000.0, 1.0, 1,
+    m_spinB = makeSpinRow(tr("b [mm]:"),     120.0,   1.0, 2000.0, 1.0, 1,
                           QStringLiteral(" mm"), accentEnc);
-    m_spinT = makeSpinRow(QStringLiteral("t [mm]:"),       1.5,   0.1,   50.0, 0.1, 2,
+    m_spinT = makeSpinRow(tr("t [mm]:"),       1.5,   0.1,   50.0, 0.1, 2,
                           QStringLiteral(" mm"), accentEnc);
 
     m_cboTopology = makeComboRow(
-        QStringLiteral("Topology:"),
-        {"Cascade  (Fig. 3.10)", "Star-branch (Fig. 3.11)"},
+        tr("Topology:"),
+        {tr("Cascade  (Fig. 3.10)"), tr("Star-branch (Fig. 3.11)")},
         accentEnc);
-    m_cboTopology->setToolTip(
+    m_cboTopology->setToolTip(tr(
         "CASCADE:     sections connected serially in depth.\n"
         "STAR_BRANCH: section 1 is the spine; sections 2..N branch\n"
-        "             laterally from the spine output junction.");
+        "             laterally from the spine output junction."));
     connect(m_cboTopology, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MainWindow::onTopologyChanged);
 
     // ── 4. FREQUENCY section ─────────────────────────────────────────────
-    makeSectionHeader(QStringLiteral("FREQUENCY SWEEP"));
+    makeSectionHeader(tr("FREQUENCY SWEEP"));
 
-    m_spinFstart = makeSpinRow(QStringLiteral("Start:"),    1.0,   0.1,  5000.0, 1.0, 1,
+    m_spinFstart = makeSpinRow(tr("Start:"),    1.0,   0.1,  5000.0, 1.0, 1,
                                QStringLiteral(" MHz"), accentEnc);
-    m_spinFstop  = makeSpinRow(QStringLiteral("Stop:"),  2000.0,  10.0, 40000.0, 100.0, 1,
+    m_spinFstop  = makeSpinRow(tr("Stop:"),  2000.0,  10.0, 40000.0, 100.0, 1,
                               QStringLiteral(" MHz"), accentEnc);
-    m_spinPoints = makeIntSpinRow(QStringLiteral("Points:"), 200, 2, 5000, 10, accentEnc);
+    m_spinPoints = makeIntSpinRow(tr("Points:"), 200, 2, 5000, 10, accentEnc);
 
     // ── 5. SECTION PROPERTIES section (PropertyPanel goes here) ─────────
-    makeSectionHeader(QStringLiteral("SECTION PROPERTIES"));
+    makeSectionHeader(tr("SECTION PROPERTIES"));
 
     m_propertyPanel = new PropertyPanel(scrollContent);
     scrollLayout->addWidget(m_propertyPanel);
 
     // ── 6. ACTIONS section ───────────────────────────────────────────────
-    makeSectionHeader(QStringLiteral("ACTIONS"));
+    makeSectionHeader(tr("ACTIONS"));
 
-    m_btnAddSection = new QPushButton(QStringLiteral("Add Section"), scrollContent);
+    m_btnAddSection = new QPushButton(tr("Add Section"), scrollContent);
     m_btnAddSection->setStyleSheet(
         EMStyle::actionButtonQSS(EMStyle::accentFor(EMStyle::AccentRole::Neutral)));
     m_btnAddSection->setCursor(Qt::PointingHandCursor);
     m_btnAddSection->setShortcut(QKeySequence("Ctrl+N"));
-    m_btnAddSection->setToolTip(QStringLiteral("Add a new section (Ctrl+N)"));
+    m_btnAddSection->setToolTip(tr("Add a new section (Ctrl+N)"));
     connect(m_btnAddSection, &QPushButton::clicked, this, &MainWindow::onAddSection);
     scrollLayout->addWidget(m_btnAddSection);
 
-    m_btnRemoveSection = new QPushButton(QStringLiteral("Remove Section"), scrollContent);
+    m_btnRemoveSection = new QPushButton(tr("Remove Section"), scrollContent);
     m_btnRemoveSection->setStyleSheet(
         EMStyle::actionButtonQSS(EMStyle::accentFor(EMStyle::AccentRole::Neutral)));
     m_btnRemoveSection->setCursor(Qt::PointingHandCursor);
     m_btnRemoveSection->setShortcut(QKeySequence("Delete"));
-    m_btnRemoveSection->setToolTip(QStringLiteral("Remove selected section (Delete)"));
+    m_btnRemoveSection->setToolTip(tr("Remove selected section (Delete)"));
     connect(m_btnRemoveSection, &QPushButton::clicked, this, &MainWindow::onRemoveSection);
     scrollLayout->addWidget(m_btnRemoveSection);
 
@@ -389,27 +389,27 @@ QWidget* MainWindow::buildLeftPanel()
     m_validityDot->setFrameShape(QFrame::NoFrame);
     validityLayout->addWidget(m_validityDot);
 
-    m_validityLabel = new QLabel(QStringLiteral("Checking..."), m_validityRow);
+    m_validityLabel = new QLabel(tr("Checking..."), m_validityRow);
     validityLayout->addWidget(m_validityLabel, /*stretch*/ 1);
 
     primaryLayout->addWidget(m_validityRow);
 
-    m_btnCompute = new QPushButton(QStringLiteral("COMPUTE"), primary);
+    m_btnCompute = new QPushButton(tr("COMPUTE"), primary);
     m_btnCompute->setMinimumHeight(38);
     m_btnCompute->setStyleSheet(
         EMStyle::primaryButtonQSS(EMStyle::accentFor(EMStyle::AccentRole::Primary)));
     m_btnCompute->setCursor(Qt::PointingHandCursor);
     m_btnCompute->setShortcut(QKeySequence("Ctrl+R"));
-    m_btnCompute->setToolTip(QStringLiteral("Run shielding analysis (Ctrl+R)"));
+    m_btnCompute->setToolTip(tr("Run shielding analysis (Ctrl+R)"));
     connect(m_btnCompute, &QPushButton::clicked, this, &MainWindow::onComputeClicked);
     primaryLayout->addWidget(m_btnCompute);
 
-    m_btnExport = new QPushButton(QStringLiteral("Export CSV"), primary);
+    m_btnExport = new QPushButton(tr("Export CSV"), primary);
     m_btnExport->setStyleSheet(
         EMStyle::actionButtonQSS(EMStyle::accentFor(EMStyle::AccentRole::Neutral)));
     m_btnExport->setCursor(Qt::PointingHandCursor);
     m_btnExport->setShortcut(QKeySequence("Ctrl+S"));
-    m_btnExport->setToolTip(QStringLiteral("Export results to CSV (Ctrl+S)"));
+    m_btnExport->setToolTip(tr("Export results to CSV (Ctrl+S)"));
     connect(m_btnExport, &QPushButton::clicked, this, &MainWindow::onExportCSV);
     primaryLayout->addWidget(m_btnExport);
 
@@ -440,14 +440,14 @@ void MainWindow::setupPlot()
     m_plot->plotLayout()->insertRow(0);
     auto* title = new QCPTextElement(
         m_plot,
-        QStringLiteral("Quick Simulation — Shielding Effectiveness"),
+        tr("Quick Simulation — Shielding Effectiveness"),
         QFont("Segoe UI", 11, QFont::Bold));
     title->setTextColor(CBStyle::TEXT);
     m_plot->plotLayout()->addElement(0, 0, title);
 
     // Axes
-    m_plot->xAxis->setLabel(QStringLiteral("Frequency [GHz]"));
-    m_plot->yAxis->setLabel(QStringLiteral("SE [dB]"));
+    m_plot->xAxis->setLabel(tr("Frequency [GHz]"));
+    m_plot->yAxis->setLabel(tr("SE [dB]"));
     m_plot->xAxis->setLabelFont(QFont("Segoe UI", 9));
     m_plot->yAxis->setLabelFont(QFont("Segoe UI", 9));
     m_plot->xAxis->setTickLabelFont(QFont("Segoe UI", 8));
@@ -495,7 +495,7 @@ void MainWindow::setupPlot()
 
 void MainWindow::setupStatusBar()
 {
-    m_lblStatus = new QLabel(QStringLiteral("Ready"));
+    m_lblStatus = new QLabel(tr("Ready"));
     m_lblStatus->setStyleSheet(QString("color:%1;background:transparent;")
                                    .arg(EMStyle::rgb(CBStyle::TEXT_MUTED)));
     statusBar()->addWidget(m_lblStatus, 1);
@@ -602,16 +602,16 @@ void MainWindow::refreshValidityIndicator()
     const int    npts   = m_spinPoints->value();
     if (fstop <= fstart) {
         setValidityState(false,
-                         QStringLiteral("Bad frequency span"),
-                         QStringLiteral("Frequency stop must be greater than frequency start.\n\n"
-                                        "Increase the Stop value or decrease the Start value."));
+                         tr("Bad frequency span"),
+                         tr("Frequency stop must be greater than frequency start.\n\n"
+                            "Increase the Stop value or decrease the Start value."));
         return;
     }
     if (npts < 2) {
         setValidityState(false,
-                         QStringLiteral("Too few points"),
-                         QStringLiteral("Frequency sweep needs at least 2 points so both endpoints "
-                                        "are included in the linspace."));
+                         tr("Too few points"),
+                         tr("Frequency sweep needs at least 2 points so both endpoints "
+                            "are included in the linspace."));
         return;
     }
 
@@ -636,7 +636,7 @@ void MainWindow::refreshValidityIndicator()
             brief = brief.left(29) + QStringLiteral("...");
         }
 
-        const QString full = QStringLiteral(
+        const QString full = tr(
                                  "Configuration is not valid for analysis:\n\n%1\n\n"
                                  "Fix the highlighted condition, then COMPUTE will be safe to run.")
                                  .arg(errQ);
@@ -645,8 +645,8 @@ void MainWindow::refreshValidityIndicator()
     }
 
     setValidityState(true,
-                     QStringLiteral("Circuit valid"),
-                     QStringLiteral("Configuration is valid. Click COMPUTE to run the sweep."));
+                     tr("Circuit valid"),
+                     tr("Configuration is valid. Click COMPUTE to run the sweep."));
 }
 
 
@@ -740,7 +740,7 @@ void MainWindow::onAddSection()
     m_cboPreset->setCurrentIndex(m_cboPreset->count() - 1);
     m_cboPreset->blockSignals(false);
 
-    setStatus(QString("Added section %1 — click Compute to update")
+    setStatus(tr("Added section %1 — click Compute to update")
                   .arg(m_canvas->sectionCount()),
               CBStyle::TEXT_MUTED);
 }
@@ -748,7 +748,7 @@ void MainWindow::onAddSection()
 void MainWindow::onRemoveSection()
 {
     if (m_canvas->sectionCount() <= 1) {
-        setStatus(QStringLiteral("Cannot remove the last section"), CBStyle::RED);
+        setStatus(tr("Cannot remove the last section"), CBStyle::RED);
         return;
     }
     m_canvas->removeSelectedSection();
@@ -757,7 +757,7 @@ void MainWindow::onRemoveSection()
     m_cboPreset->setCurrentIndex(m_cboPreset->count() - 1);
     m_cboPreset->blockSignals(false);
 
-    setStatus(QString("%1 sections remaining — click Compute to update")
+    setStatus(tr("%1 sections remaining — click Compute to update")
                   .arg(m_canvas->sectionCount()),
               CBStyle::TEXT_MUTED);
 }
@@ -803,8 +803,8 @@ void MainWindow::onExportCSV()
 {
     if (m_freqs.isEmpty()) {
         MessageDialog::error(this,
-                             QStringLiteral("No data to export"),
-                             QStringLiteral(
+                             tr("No data to export"),
+                             tr(
                                  "There is no computed SE data to export.\n\n"
                                  "Click COMPUTE first to populate the plot, then "
                                  "use Export CSV to save the results."));
@@ -812,19 +812,19 @@ void MainWindow::onExportCSV()
     }
 
     const QString filename = QFileDialog::getSaveFileName(
-        this, QStringLiteral("Export CSV"),
+        this, tr("Export CSV"),
         QStringLiteral("SE_results.csv"),
-        QStringLiteral("CSV Files (*.csv)"));
+        tr("CSV Files (*.csv)"));
     if (filename.isEmpty()) return;
 
     std::ofstream file(filename.toStdString());
     if (!file.is_open()) {
         MessageDialog::error(this,
-                             QStringLiteral("Cannot write file"),
-                             QString("The selected file could not be opened for writing:\n\n"
-                                     "%1\n\n"
-                                     "Check that the destination folder exists and that "
-                                     "the file is not currently open in another program.").arg(filename));
+                             tr("Cannot write file"),
+                             tr("The selected file could not be opened for writing:\n\n"
+                                "%1\n\n"
+                                "Check that the destination folder exists and that "
+                                "the file is not currently open in another program.").arg(filename));
         return;
     }
 
@@ -844,11 +844,11 @@ void MainWindow::onExportCSV()
     }
     file.close();
 
-    setStatus(QStringLiteral("Exported: ") + filename, CBStyle::GREEN);
+    setStatus(tr("Exported: ") + filename, CBStyle::GREEN);
 
     MessageDialog::success(this,
-                           QStringLiteral("Export complete"),
-                           QString("CSV saved successfully to:\n\n%1").arg(filename));
+                           tr("Export complete"),
+                           tr("CSV saved successfully to:\n\n%1").arg(filename));
 }
 
 
@@ -893,10 +893,10 @@ void MainWindow::runAnalysis()
     const QVector<SectionItemData> sectionData = m_canvas->allSectionData();
     if (sectionData.isEmpty()) {
         MessageDialog::error(this,
-                             QStringLiteral("No sections"),
-                             QStringLiteral("The canvas has no sections.\n\n"
-                                            "Use Add Section or load a preset, then click COMPUTE."));
-        setStatus(QStringLiteral("No sections defined"), CBStyle::RED);
+                             tr("No sections"),
+                             tr("The canvas has no sections.\n\n"
+                                "Use Add Section or load a preset, then click COMPUTE."));
+        setStatus(tr("No sections defined"), CBStyle::RED);
         return;
     }
 
@@ -923,13 +923,13 @@ void MainWindow::runAnalysis()
     std::string error_msg;
     if (!cfg.isValid(error_msg)) {
         MessageDialog::error(this,
-                             QStringLiteral("Invalid configuration"),
+                             tr("Invalid configuration"),
                              QString::fromStdString(error_msg));
-        setStatus(QStringLiteral("Cannot compute — invalid configuration"), CBStyle::RED);
+        setStatus(tr("Cannot compute — invalid configuration"), CBStyle::RED);
         return;
     }
 
-    setStatus(QStringLiteral("Computing..."), CBStyle::TEXT_MUTED);
+    setStatus(tr("Computing..."), CBStyle::TEXT_MUTED);
     QApplication::processEvents();
 
     // 4. Generate circuit
@@ -939,20 +939,20 @@ void MainWindow::runAnalysis()
         obs_points = CircuitGenerator::generate(cfg, solver, false);
     } catch (const std::exception& e) {
         MessageDialog::error(this,
-                             QStringLiteral("Circuit generation failed"),
+                             tr("Circuit generation failed"),
                              QString::fromStdString(e.what()));
-        setStatus(QStringLiteral("Circuit generation failed"), CBStyle::RED);
+        setStatus(tr("Circuit generation failed"), CBStyle::RED);
         return;
     }
 
     if (obs_points.empty()) {
         MessageDialog::error(this,
-                             QStringLiteral("No observation points"),
-                             QStringLiteral(
+                             tr("No observation points"),
+                             tr(
                                  "No sections have 'Has observation point' enabled.\n\n"
                                  "Enable at least one section's observation in the SECTION "
                                  "PROPERTIES panel, then COMPUTE again."));
-        setStatus(QStringLiteral("No observation points"), CBStyle::RED);
+        setStatus(tr("No observation points"), CBStyle::RED);
         return;
     }
 
@@ -999,8 +999,8 @@ void MainWindow::runAnalysis()
 
     // 8. Status bar
     setStatus(
-        QString("%1-section %2 | %3 branches, %4 nodes, %5 obs pts | "
-                "%6 points in %7 ms")
+        tr("%1-section %2 | %3 branches, %4 nodes, %5 obs pts | "
+           "%6 points in %7 ms")
             .arg(static_cast<int>(cfg.sections.size()))
             .arg(cfg.topology == TopologyType::STAR_BRANCH ? "STAR_BRANCH" : "CASCADE")
             .arg(solver.getNumBranches())
@@ -1159,15 +1159,15 @@ void MainWindow::onPlotClicked(QMouseEvent* event)
         tracer->setVisible(true);
     }
 
-    QString text = QString("f = %1 GHz\n").arg(f_GHz, 0, 'f', 4);
+    QString text = tr("f = %1 GHz\n").arg(f_GHz, 0, 'f', 4);
     for (int c = 0; c < m_SE_data.size(); ++c) {
         const double se = m_SE_data[c].value(idx,
                                              std::numeric_limits<double>::quiet_NaN());
         const QString lbl = m_labels.value(c, QString("P%1").arg(c + 1));
         if (std::isfinite(se)) {
-            text += QString("%1 : %2 dB\n").arg(lbl, -4).arg(se, 8, 'f', 2);
+            text += tr("%1 : %2 dB\n").arg(lbl, -4).arg(se, 8, 'f', 2);
         } else {
-            text += QString("%1 :   inf dB\n").arg(lbl, -4);
+            text += tr("%1 :   inf dB\n").arg(lbl, -4);
         }
     }
     text = text.trimmed();

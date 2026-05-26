@@ -175,8 +175,8 @@ private:
         return (kind_ == Kind::Error) ? CBStyle::RED : CBStyle::GREEN;
     }
     QString primaryButtonText() const {
-        return (kind_ == Kind::Error) ? QStringLiteral("Close")
-                                      : QStringLiteral("OK");
+        return (kind_ == Kind::Error) ? tr("Close")
+                                      : tr("OK");
     }
 
     // Build the card's child widgets (icon, title, body, button).

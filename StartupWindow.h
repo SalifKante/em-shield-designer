@@ -268,9 +268,9 @@ private:
             "  font-family: 'Segoe UI', 'Calibri', sans-serif;"
             "}");
 
-        m_lblSubtitle = new QLabel(
+        m_lblSubtitle = new QLabel(tr(
             "Shielding Effectiveness Analyzer\n"
-            "Using Equivalent Circuit Method and Nodal Analysis");
+            "Using Equivalent Circuit Method and Nodal Analysis"));
         m_lblSubtitle->setAlignment(Qt::AlignCenter);
         m_lblSubtitle->setStyleSheet(
             "QLabel {"
@@ -297,16 +297,16 @@ private:
         btnLayout->setSpacing(30);
 
         m_btnQuick = createModeButton(
-            "Quick Simulation",
-            "Preset configurations with\ninteractive parameter control",
+            tr("Quick Simulation"),
+            tr("Preset configurations with\ninteractive parameter control"),
             QColor(37, 99, 235),
             IconBadge::QuickSim);
         connect(m_btnQuick, &QPushButton::clicked,
                 this, &StartupWindow::quickSimulationClicked);
 
         m_btnBuilder = createModeButton(
-            "Circuit Builder",
-            "Drag & drop elements to build\ncustom equivalent circuits",
+            tr("Circuit Builder"),
+            tr("Drag & drop elements to build\ncustom equivalent circuits"),
             QColor(22, 163, 74),
             IconBadge::CircuitBuilder);
         connect(m_btnBuilder, &QPushButton::clicked,
@@ -317,7 +317,7 @@ private:
         mainLayout->addLayout(btnLayout);
         mainLayout->addStretch(1);
 
-        QLabel* lblFooter = new QLabel("Electromagnetic Compatibility Research Tool");
+        QLabel* lblFooter = new QLabel(tr("Electromagnetic Compatibility Research Tool"));
         lblFooter->setAlignment(Qt::AlignCenter);
         lblFooter->setStyleSheet(
             "QLabel {"
