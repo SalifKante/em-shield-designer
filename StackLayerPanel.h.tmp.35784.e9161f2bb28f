@@ -377,12 +377,12 @@ private:
 
         case ElementType::DielectricCavity:
             return QString(
-                       "L = %1 mm\n"
-                       "h_diel = %2 mm\n"
+                       "L = %1 m\n"
+                       "h_diel = %2 m\n"
                        "\u03b5\u1d63 = %3"
                        )
-                .arg(fmt(p.L_cavity_mm, 1))
-                .arg(fmt(p.h_dielectric_mm, 2))
+                .arg(fmt(p.L_cavity, 4))
+                .arg(fmt(p.h_dielectric, 5))
                 .arg(fmt(p.eps_r, 2));
 
         case ElementType::Load:
