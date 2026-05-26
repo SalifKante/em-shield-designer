@@ -46,3 +46,6 @@ desktop.ini
 *~
 *.swp
 *.bak
+
+# Claude Code temp backups
+*.tmp.*
