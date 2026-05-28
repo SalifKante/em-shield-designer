@@ -35,6 +35,7 @@
 #include <QMessageBox>
 #include <QSettings>
 #include <QTranslator>
+#include <QVariant>
 
 #include <iostream>
 #include <iomanip>
@@ -294,8 +295,15 @@ int main(int argc, char* argv[])
         const QString lang = settings.value("language", "en").toString();
         if (lang != "en") {
             auto* translator = new QTranslator(&app);
-            if (translator->load("em-shield-designer_" + lang, ":/i18n"))
+            if (translator->load("em-shield-designer_" + lang, ":/i18n")) {
                 app.installTranslator(translator);
+                // [P3c.1-fix] Expose the launch-time translator on qApp so
+                // StartupWindow can remove it when switching back to English
+                // mid-session. Stored as QObject* (a built-in QVariant type) to
+                // avoid needing Q_DECLARE_METATYPE(QTranslator*).
+                app.setProperty("emshield_translator",
+                                QVariant::fromValue<QObject*>(translator));
+            }
         }
     }
     // ────────────────────────────────────────────────────────────────────────

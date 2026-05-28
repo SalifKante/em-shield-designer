@@ -12,6 +12,11 @@
 #include <QFont>
 #include <QGraphicsDropShadowEffect>
 #include <QPropertyAnimation>
+#include <QSettings>
+#include <QTranslator>
+#include <QApplication>
+#include <QEvent>
+#include <QVariant>
 
 #include <cmath>
 
@@ -130,6 +135,11 @@ public:
                        Qt::WindowMaximizeButtonHint |
                        Qt::WindowCloseButtonHint);
         setupUI();
+        // [P3c.1-fix] Adopt the launch-time translator main.cpp installed (when
+        // launched in a non-source language) so setLanguage() can remove it on
+        // a switch back to English. Null when launched in English.
+        m_translator = qobject_cast<QTranslator*>(
+            qApp->property("emshield_translator").value<QObject*>());
         playEntryAnimation();
     }
 
@@ -176,6 +186,15 @@ protected:
         p.setBrush(accentGrad);
         p.drawRect(0, 0,          width(), 3);
         p.drawRect(0, height()-2, width(), 2);
+    }
+
+    // [P3c.1] Qt posts LanguageChange to every top-level widget when a
+    // translator is installed/removed. Catch it and re-translate our own text.
+    void changeEvent(QEvent* e) override
+    {
+        if (e->type() == QEvent::LanguageChange)
+            retranslateUi();
+        QWidget::changeEvent(e);
     }
 
 private slots:
@@ -257,6 +276,24 @@ private:
         mainLayout->setContentsMargins(50, 45, 50, 40);
         mainLayout->setSpacing(0);
 
+        // ── [P3c] Language picker (top-right, above the mode cards) ──────────
+        m_btnLangEn = new QPushButton(QStringLiteral("English"), this);
+        m_btnLangRu = new QPushButton(QStringLiteral("Русский"), this);
+        m_btnLangEn->setCursor(Qt::PointingHandCursor);
+        m_btnLangRu->setCursor(Qt::PointingHandCursor);
+        connect(m_btnLangEn, &QPushButton::clicked, this,
+                [this]{ setLanguage(QStringLiteral("en")); });
+        connect(m_btnLangRu, &QPushButton::clicked, this,
+                [this]{ setLanguage(QStringLiteral("ru")); });
+        auto* langRow = new QHBoxLayout;
+        langRow->setContentsMargins(0, 0, 0, 0);
+        langRow->setSpacing(6);
+        langRow->addStretch(1);
+        langRow->addWidget(m_btnLangEn);
+        langRow->addWidget(m_btnLangRu);
+        mainLayout->insertLayout(0, langRow);
+        // ─────────────────────────────────────────────────────────────────────
+
         m_lblTitle = new QLabel("EMShieldDesigner");
         m_lblTitle->setAlignment(Qt::AlignCenter);
         m_lblTitle->setStyleSheet(
@@ -268,9 +305,7 @@ private:
             "  font-family: 'Segoe UI', 'Calibri', sans-serif;"
             "}");
 
-        m_lblSubtitle = new QLabel(tr(
-            "Shielding Effectiveness Analyzer\n"
-            "Using Equivalent Circuit Method and Nodal Analysis"));
+        m_lblSubtitle = new QLabel(this);   // [P3c.1] text set in retranslateUi()
         m_lblSubtitle->setAlignment(Qt::AlignCenter);
         m_lblSubtitle->setStyleSheet(
             "QLabel {"
@@ -297,18 +332,14 @@ private:
         btnLayout->setSpacing(30);
 
         m_btnQuick = createModeButton(
-            tr("Quick Simulation"),
-            tr("Preset configurations with\ninteractive parameter control"),
-            QColor(37, 99, 235),
-            IconBadge::QuickSim);
+            QColor(37, 99, 235), IconBadge::QuickSim,
+            m_lblQuickTitle, m_lblQuickDesc);
         connect(m_btnQuick, &QPushButton::clicked,
                 this, &StartupWindow::quickSimulationClicked);
 
         m_btnBuilder = createModeButton(
-            tr("Circuit Builder"),
-            tr("Drag & drop elements to build\ncustom equivalent circuits"),
-            QColor(22, 163, 74),
-            IconBadge::CircuitBuilder);
+            QColor(22, 163, 74), IconBadge::CircuitBuilder,
+            m_lblBuilderTitle, m_lblBuilderDesc);
         connect(m_btnBuilder, &QPushButton::clicked,
                 this, &StartupWindow::onCircuitBuilderClicked);
 
@@ -317,25 +348,116 @@ private:
         mainLayout->addLayout(btnLayout);
         mainLayout->addStretch(1);
 
-        QLabel* lblFooter = new QLabel(tr("Electromagnetic Compatibility Research Tool"));
-        lblFooter->setAlignment(Qt::AlignCenter);
-        lblFooter->setStyleSheet(
+        m_lblFooter = new QLabel(this);   // [P3c.1] text set in retranslateUi()
+        m_lblFooter->setAlignment(Qt::AlignCenter);
+        m_lblFooter->setStyleSheet(
             "QLabel {"
             "  color: #94a3b8;"
             "  font-size: 10px;"
             "  font-family: 'Segoe UI', sans-serif;"
             "}");
-        mainLayout->addWidget(lblFooter);
+        mainLayout->addWidget(m_lblFooter);
+
+        // [P3c.1] Initial text fill in the current language (the launch-time
+        // translator, if any, was installed by main.cpp before this window
+        // was constructed, so tr() already returns the right language here).
+        retranslateUi();
+
+        // [P3c] Reflect the persisted language in the picker's initial state.
+        QSettings settings;
+        applyLangStyles(settings.value(QStringLiteral("language"),
+                                       QStringLiteral("en")).toString());
+    }
+
+    // ── [P3c] Language picker helpers ────────────────────────────────────
+    // Path 2: a click SAVES the choice and installs/removes the translator so
+    // the NEXT window (Quick Sim / Circuit Builder) — constructed after the
+    // click — opens in the chosen language. StartupWindow itself is ALSO
+    // retranslated live via changeEvent()/retranslateUi() (P3c.1).
+    //
+    // [P3c.1-fix] The switch works in BOTH directions from ANY launch state:
+    // the launch-time translator installed by main.cpp is adopted into
+    // m_translator in the constructor (via the "emshield_translator" qApp
+    // property), so an English click removes it even when launched in Russian.
+    void applyLangStyles(const QString& cur)
+    {
+        auto styleFor = [](bool selected) -> QString {
+            const QString accent   = EMStyle::rgb(CBStyle::ACCENT);
+            const QString surface2 = EMStyle::rgb(CBStyle::SURFACE2);
+            if (selected) {
+                return QString(
+                    "QPushButton{background:%1;color:#FFFFFF;border:none;"
+                    "border-radius:6px;padding:6px 14px;"
+                    "font-family:'Segoe UI',sans-serif;font-size:12px;font-weight:600;}"
+                    "QPushButton:hover{background:%1;}").arg(accent);
+            }
+            return QString(
+                "QPushButton{background:transparent;color:%1;border:1px solid %1;"
+                "border-radius:6px;padding:6px 14px;"
+                "font-family:'Segoe UI',sans-serif;font-size:12px;font-weight:600;}"
+                "QPushButton:hover{background:%2;}").arg(accent).arg(surface2);
+        };
+        m_btnLangEn->setStyleSheet(styleFor(cur == QStringLiteral("en")));
+        m_btnLangRu->setStyleSheet(styleFor(cur == QStringLiteral("ru")));
+    }
+
+    void setLanguage(const QString& code)
+    {
+        QSettings settings;
+        const QString current = settings.value(QStringLiteral("language"),
+                                               QStringLiteral("en")).toString();
+        if (code == current) return;   // already selected — no-op
+
+        settings.setValue(QStringLiteral("language"), code);
+
+        if (code == QStringLiteral("ru")) {
+            if (!m_translator) {
+                m_translator = new QTranslator(this);
+                if (!m_translator->load(QStringLiteral("em-shield-designer_ru"),
+                                        QStringLiteral(":/i18n")))
+                    qWarning("StartupWindow: failed to load em-shield-designer_ru.qm");
+            }
+            qApp->installTranslator(m_translator);   // safe to call repeatedly
+            qApp->setProperty("emshield_translator",
+                              QVariant::fromValue<QObject*>(m_translator));
+        } else {
+            if (m_translator) qApp->removeTranslator(m_translator);
+            qApp->setProperty("emshield_translator", QVariant());
+        }
+
+        applyLangStyles(code);
+    }
+    // ─────────────────────────────────────────────────────────────────────
+
+    // [P3c.1] Reset every translatable StartupWindow widget to the current
+    // language. Excludes the brand title (m_lblTitle) and the picker buttons
+    // ("English"/"Русский" native names), which stay fixed in both languages.
+    void retranslateUi()
+    {
+        if (!m_lblSubtitle || !m_lblFooter) return;   // guard before setupUI
+        m_lblSubtitle->setText(tr(
+            "Shielding Effectiveness Analyzer\n"
+            "Using Equivalent Circuit Method and Nodal Analysis"));
+        m_lblFooter->setText(tr("Electromagnetic Compatibility Research Tool"));
+        if (m_lblQuickTitle)   m_lblQuickTitle->setText(tr("Quick Simulation"));
+        if (m_lblQuickDesc)    m_lblQuickDesc->setText(
+            tr("Preset configurations with\ninteractive parameter control"));
+        if (m_lblBuilderTitle) m_lblBuilderTitle->setText(tr("Circuit Builder"));
+        if (m_lblBuilderDesc)  m_lblBuilderDesc->setText(
+            tr("Drag & drop elements to build\ncustom equivalent circuits"));
     }
 
     // [T2.1a] createModeButton: the `icon` string parameter has been
     // replaced by an IconBadge::Kind, so the mode glyph is painted by
     // QPainter instead of being rendered as an emoji character. The
     // rest of the button styling is unchanged from the original.
-    QPushButton* createModeButton(const QString&    title,
-                                  const QString&    description,
-                                  const QColor&     accent,
-                                  IconBadge::Kind   iconKind)
+    // [P3c.1] Inner title/description labels are returned via out-params so
+    // retranslateUi() can reset their text on a live language change. They are
+    // created with empty text here; retranslateUi() fills them.
+    QPushButton* createModeButton(const QColor&     accent,
+                                  IconBadge::Kind   iconKind,
+                                  QLabel*&          outTitle,
+                                  QLabel*&          outDesc)
     {
         QPushButton* btn = new QPushButton;
         btn->setFixedSize(300, 150);
@@ -363,12 +485,14 @@ private:
             return lbl;
         };
 
-        bLayout->addWidget(makeLabel(title,
-                                     "font-size: 16px; font-weight: 700; color: #1e293b;"
-                                     " font-family: 'Segoe UI', sans-serif; background: transparent;", btn));
-        bLayout->addWidget(makeLabel(description,
-                                     "font-size: 11px; color: #64748b;"
-                                     " font-family: 'Segoe UI', sans-serif; background: transparent;", btn));
+        outTitle = makeLabel(QString(),
+                             "font-size: 16px; font-weight: 700; color: #1e293b;"
+                             " font-family: 'Segoe UI', sans-serif; background: transparent;", btn);
+        bLayout->addWidget(outTitle);
+        outDesc = makeLabel(QString(),
+                            "font-size: 11px; color: #64748b;"
+                            " font-family: 'Segoe UI', sans-serif; background: transparent;", btn);
+        bLayout->addWidget(outDesc);
 
         const int r = accent.red(), g = accent.green(), b = accent.blue();
         btn->setStyleSheet(QString(
@@ -411,6 +535,20 @@ private:
     QLabel*      m_lblSubtitle { nullptr };
     QPushButton* m_btnQuick    { nullptr };
     QPushButton* m_btnBuilder  { nullptr };
+
+    // [P3c] Language picker
+    QPushButton* m_btnLangEn   { nullptr };
+    QPushButton* m_btnLangRu   { nullptr };
+    QTranslator* m_translator  { nullptr };
+
+    // [P3c.1] Retranslatable labels (footer + the four mode-card labels).
+    // The four card labels are created inside createModeButton() and returned
+    // via its out-params; retranslateUi() resets all six on a language change.
+    QLabel* m_lblFooter        { nullptr };
+    QLabel* m_lblQuickTitle    { nullptr };
+    QLabel* m_lblQuickDesc     { nullptr };
+    QLabel* m_lblBuilderTitle  { nullptr };
+    QLabel* m_lblBuilderDesc   { nullptr };
 };
 
 #endif // STARTUPWINDOW_H
