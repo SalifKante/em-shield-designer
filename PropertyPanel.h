@@ -11,6 +11,12 @@
 #include <QDoubleSpinBox>
 #include <QCheckBox>
 #include <QFrame>
+// [D-1] CircuitBuilderWindow.h defines the CBStyle palette + sets
+// CBSTYLE_DECLARED, then includes Styles.h. We need both for the
+// EMStyle::chkSS / EMStyle::accentFor calls below. (Within the 3-file scope
+// of D-1; a future refactor can extract CBStyle to its own tiny header to
+// avoid this transitive heaviness.)
+#include "CircuitBuilderWindow.h"
 
 // ============================================================================
 // PROPERTY PANEL
@@ -153,6 +159,8 @@ private:
 
         m_chkObservation = new QCheckBox(tr("Has observation point"));
         m_chkObservation->setChecked(true);
+        m_chkObservation->setStyleSheet(
+            EMStyle::chkSS(EMStyle::accentFor(EMStyle::AccentRole::Primary)));
         cavLayout->addWidget(m_chkObservation);
 
         grpCavity->setLayout(cavLayout);
@@ -197,6 +205,8 @@ private:
         covLayout->setSpacing(4);
 
         m_chkCover = new QCheckBox(tr("Enable cover"));
+        m_chkCover->setStyleSheet(
+            EMStyle::chkSS(EMStyle::accentFor(EMStyle::AccentRole::Primary)));
         covLayout->addWidget(m_chkCover);
 
         addSpinRow(covLayout, tr("Gap (τ):"), m_spinCoverGap,
@@ -227,6 +237,8 @@ private:
         dielLayout->setSpacing(4);
 
         m_chkDielectric = new QCheckBox(tr("Enable dielectric"));
+        m_chkDielectric->setStyleSheet(
+            EMStyle::chkSS(EMStyle::accentFor(EMStyle::AccentRole::Primary)));
         dielLayout->addWidget(m_chkDielectric);
 
         addSpinRow(dielLayout, tr("Height (h):"), m_spinDielH,

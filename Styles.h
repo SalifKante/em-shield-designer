@@ -385,6 +385,31 @@ inline QString comboSS(QColor accent) {
 }
 
 // ----------------------------------------------------------------------------
+//  [D-1] Checkbox QSS — promoted from CircuitBuilderWindow.h's local helper.
+//
+//  Indicator filled with `accent` when checked; standard CBStyle palette for
+//  the unchecked / disabled states. Used by Circuit Builder (per-element
+//  accent) and Quick Simulation (AccentRole::Primary).
+// ----------------------------------------------------------------------------
+
+inline QString chkSS(QColor accent) {
+    return QString(
+               "QCheckBox{color:%1;font-family:'Courier New';font-size:10px;spacing:6px;}"
+               "QCheckBox:disabled{color:%2;}"
+               "QCheckBox::indicator{width:13px;height:13px;border:1px solid %3;"
+               "border-radius:3px;background:%4;}"
+               "QCheckBox::indicator:checked{background:%5;border:1px solid %5;}"
+               "QCheckBox::indicator:disabled{border:1px solid %6;background:%7;}")
+        .arg(rgb(CBStyle::TEXT))        // %1 label text
+        .arg(rgb(CBStyle::TEXT_DIM))    // %2 disabled label
+        .arg(rgb(CBStyle::BORDER))      // %3 box border
+        .arg(rgb(CBStyle::BG))          // %4 box fill (unchecked)
+        .arg(rgb(accent))               // %5 checked fill + border (accent)
+        .arg(rgb(CBStyle::BORDER_LT))   // %6 disabled border
+        .arg(rgb(CBStyle::SURFACE));    // %7 disabled fill
+}
+
+// ----------------------------------------------------------------------------
 //  Horizontal divider QSS — separates panel sections.
 // ----------------------------------------------------------------------------
 

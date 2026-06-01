@@ -1254,28 +1254,8 @@ private:
         // [T2.1a] Forwarded to EMStyle::lblSS — single source of truth.
         return EMStyle::lblSS();
     }
-    // [P2] Checkbox QSS using the CBStyle palette. Kept local (not in
-    // EMStyle) because P2 is scoped to this file; the checked indicator
-    // takes the element accent so it matches the row's spinboxes.
-    QString chkSS(QColor col) const {
-        auto rgb = [](const QColor& c){
-            return QString("rgb(%1,%2,%3)").arg(c.red()).arg(c.green()).arg(c.blue());
-        };
-        return QString(
-            "QCheckBox{color:%1;font-family:'Courier New';font-size:10px;spacing:6px;}"
-            "QCheckBox:disabled{color:%2;}"
-            "QCheckBox::indicator{width:13px;height:13px;border:1px solid %3;"
-            "border-radius:3px;background:%4;}"
-            "QCheckBox::indicator:checked{background:%5;border:1px solid %5;}"
-            "QCheckBox::indicator:disabled{border:1px solid %6;background:%7;}")
-            .arg(rgb(CBStyle::TEXT))        // %1 label text
-            .arg(rgb(CBStyle::TEXT_DIM))    // %2 disabled label
-            .arg(rgb(CBStyle::BORDER))      // %3 box border
-            .arg(rgb(CBStyle::BG))          // %4 box fill (unchecked)
-            .arg(rgb(col))                  // %5 checked fill + border (element accent)
-            .arg(rgb(CBStyle::BORDER_LT))   // %6 disabled border
-            .arg(rgb(CBStyle::SURFACE));    // %7 disabled fill
-    }
+    // [D-1] Checkbox QSS moved to EMStyle::chkSS in Styles.h. Call sites
+    // updated to EMStyle::chkSS(accent).
 
     // [T1.2-E] addDouble / addInt / addLineEdit:
     // captures changed from [=] to explicit [this, fn] to satisfy
@@ -1341,7 +1321,7 @@ private:
         auto* cb = new QCheckBox(l, formWidget_);
         cb->setChecked(v);
         QColor c = currentElement_ ? currentElement_->accentColor() : CBStyle::ACCENT;
-        cb->setStyleSheet(chkSS(c));
+        cb->setStyleSheet(EMStyle::chkSS(c));
         connect(cb, &QCheckBox::toggled, this,
                 [this, fn](bool on){
                     if (m_loading_) return;
