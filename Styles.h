@@ -463,6 +463,56 @@ inline QString groupBoxQSS() {
 }
 
 // ----------------------------------------------------------------------------
+//  [D-Polish-3] Zoom cluster QSS — the persistent [−] [NNN%] [+] cluster
+//  anchored bottom-right of both canvases. Two helpers because the glyph
+//  buttons use Segoe UI 14 bold (visible math symbols) while the readout
+//  uses Courier New 11 bold (monospace digits). Both share border / bg /
+//  hover / pressed visuals. The readout has no :disabled state (clicking
+//  it is always meaningful as a reset-to-100%).
+// ----------------------------------------------------------------------------
+
+inline QString zoomGlyphButtonQSS() {
+    return QString(
+               "QPushButton{"
+               "background:%1;color:%2;"
+               "border:1px solid %3;border-radius:4px;"
+               "font-family:'Segoe UI',sans-serif;font-size:14px;font-weight:bold;"
+               "padding:0px;"
+               "}"
+               "QPushButton:hover{background:%4;border:1px solid %5;color:%5;}"
+               "QPushButton:pressed{background:%6;border:1px solid %5;}"
+               "QPushButton:disabled{color:%7;border:1px solid %8;background:%1;}"
+               )
+        .arg(rgb(CBStyle::SURFACE))     // %1 background
+        .arg(rgb(CBStyle::TEXT))        // %2 normal text
+        .arg(rgb(CBStyle::BORDER))      // %3 normal border
+        .arg(rgb(CBStyle::SURFACE2))    // %4 hover bg
+        .arg(rgb(CBStyle::ACCENT))      // %5 hover border + text + pressed border
+        .arg(rgba(CBStyle::ACCENT, 35)) // %6 pressed bg
+        .arg(rgb(CBStyle::TEXT_DIM))    // %7 disabled text
+        .arg(rgb(CBStyle::BORDER_LT));  // %8 disabled border (softer)
+}
+
+inline QString zoomReadoutButtonQSS() {
+    return QString(
+               "QPushButton{"
+               "background:%1;color:%2;"
+               "border:1px solid %3;border-radius:4px;"
+               "font-family:'Courier New',monospace;font-size:11px;font-weight:bold;"
+               "padding:0px;"
+               "}"
+               "QPushButton:hover{background:%4;border:1px solid %5;color:%5;}"
+               "QPushButton:pressed{background:%6;border:1px solid %5;}"
+               )
+        .arg(rgb(CBStyle::SURFACE))
+        .arg(rgb(CBStyle::TEXT))
+        .arg(rgb(CBStyle::BORDER))
+        .arg(rgb(CBStyle::SURFACE2))
+        .arg(rgb(CBStyle::ACCENT))
+        .arg(rgba(CBStyle::ACCENT, 35));
+}
+
+// ----------------------------------------------------------------------------
 //  Icon pixmap factory — renders a 16×16 element icon by wrapping the
 //  existing ElementIcon::draw* QPainter helpers.
 //

@@ -738,37 +738,43 @@ public:
         setResizeAnchor(QGraphicsView::AnchorViewCenter);
         setFocusPolicy(Qt::StrongFocus);
 
-        // Zoom indicator overlay — a frameless QLabel parented to the viewport
-        // so it floats above the scene without participating in the scene's
-        // coordinate system. Positioned in resizeEvent() to stay anchored
-        // bottom-right whenever the view itself resizes.
-        zoomIndicator_ = new QLabel(viewport());
-        zoomIndicator_->setObjectName("ZoomIndicator");
-        zoomIndicator_->setStyleSheet(QString(
-                                          "QLabel#ZoomIndicator{"
-                                          "background:%1;"
-                                          "color:white;"
-                                          "font-family:'Courier New',monospace;"
-                                          "font-size:11px;"
-                                          "font-weight:bold;"
-                                          "padding:4px 10px;"
-                                          "border:1px solid %2;"
-                                          "border-radius:4px;"
-                                          "}"
-                                          )
-                                          .arg(EMStyle::rgba(CBStyle::TEXT, 220))
-                                          .arg(EMStyle::rgb(CBStyle::TEXT)));
-        zoomIndicator_->setAlignment(Qt::AlignCenter);
-        zoomIndicator_->setText(tr("Zoom: 100%"));
-        zoomIndicator_->adjustSize();
-        zoomIndicator_->hide();
+        // [D-Polish-3] Persistent [−] [NNN%] [+] button cluster parented to
+        // the viewport. Bottom-right anchor maintained by resizeEvent.
+        zoomCluster_ = new QWidget(viewport());
+        auto* clusterLayout = new QHBoxLayout(zoomCluster_);
+        clusterLayout->setContentsMargins(0, 0, 0, 0);
+        clusterLayout->setSpacing(3);
 
-        // Auto-hide timer — restarted on every zoom action; fires once.
-        zoomIndicatorTimer_ = new QTimer(this);
-        zoomIndicatorTimer_->setSingleShot(true);
-        zoomIndicatorTimer_->setInterval(2000);   // 2 seconds per spec
-        connect(zoomIndicatorTimer_, &QTimer::timeout, this,
-                [this]{ if (zoomIndicator_) zoomIndicator_->hide(); });
+        btnZoomOut_     = new QPushButton("−", zoomCluster_);   // U+2212 minus
+        btnZoomReadout_ = new QPushButton("100%", zoomCluster_);
+        btnZoomIn_      = new QPushButton("+", zoomCluster_);
+
+        btnZoomOut_    ->setFixedSize(28, 24);
+        btnZoomReadout_->setFixedSize(52, 24);
+        btnZoomIn_     ->setFixedSize(28, 24);
+
+        btnZoomOut_    ->setFocusPolicy(Qt::NoFocus);
+        btnZoomReadout_->setFocusPolicy(Qt::NoFocus);
+        btnZoomIn_     ->setFocusPolicy(Qt::NoFocus);
+
+        btnZoomOut_    ->setCursor(Qt::PointingHandCursor);
+        btnZoomReadout_->setCursor(Qt::PointingHandCursor);
+        btnZoomIn_     ->setCursor(Qt::PointingHandCursor);
+
+        btnZoomOut_    ->setStyleSheet(EMStyle::zoomGlyphButtonQSS());
+        btnZoomReadout_->setStyleSheet(EMStyle::zoomReadoutButtonQSS());
+        btnZoomIn_     ->setStyleSheet(EMStyle::zoomGlyphButtonQSS());
+
+        clusterLayout->addWidget(btnZoomOut_);
+        clusterLayout->addWidget(btnZoomReadout_);
+        clusterLayout->addWidget(btnZoomIn_);
+        zoomCluster_->adjustSize();
+
+        connect(btnZoomOut_,     &QPushButton::clicked, this, [this]{ zoomBy(-1); });
+        connect(btnZoomIn_,      &QPushButton::clicked, this, [this]{ zoomBy(+1); });
+        connect(btnZoomReadout_, &QPushButton::clicked, this, [this]{ resetZoom(); });
+
+        updateZoomDisplay();   // initial enabled-state on the +/- buttons
     }
 
 signals:
@@ -798,102 +804,95 @@ protected:
         emit elementSelected(dynamic_cast<CanvasElement*>(itemAt(e->pos())));
     }
 
-    // ─── [T1.5] Mouse-wheel zoom (50%–300%, pivots on cursor) ───────────
-    //
-    // Scroll up  (angleDelta().y() > 0) → zoom in
-    // Scroll down (angleDelta().y() < 0) → zoom out
-    //
-    // The zoom factor is applied incrementally via scale() rather than by
-    // resetting the transform. This lets QGraphicsView's AnchorUnderMouse
-    // mode handle the cursor-pivot math automatically.
-    //
-    // Bypassing QGraphicsView::wheelEvent() prevents the default behaviour
-    // (vertical scroll), which would compete with the zoom.
+    // ─── [D-Polish-3] Mouse-wheel zoom — delegates to zoomBy() (DRY with
+    // the [+]/[−] cluster button click handlers). CB consumes wheel events
+    // unconditionally for zoom (vertical scroll is not used on this canvas).
     void wheelEvent(QWheelEvent* e) override {
-        constexpr qreal kStep = 1.15;        // ~15% per notch — feels natural
-        constexpr qreal kMin  = 0.50;        // 50% lower bound
-        constexpr qreal kMax  = 3.00;        // 300% upper bound
-
         const int delta = e->angleDelta().y();
         if (delta == 0) {
             QGraphicsView::wheelEvent(e);
             return;
         }
-
-        const qreal factor = (delta > 0) ? kStep : (1.0 / kStep);
-        const qreal target = qBound(kMin, zoomFactor_ * factor, kMax);
-
-        // If the clamp eliminates the change (we were already at the bound
-        // and tried to push past it), don't apply anything — visually nothing
-        // happens but the indicator still flashes to confirm the input.
-        if (qFuzzyCompare(target, zoomFactor_)) {
-            showZoomIndicator();
-            e->accept();
-            return;
-        }
-
-        const qreal applied = target / zoomFactor_;
-        scale(applied, applied);
-        zoomFactor_ = target;
-
-        showZoomIndicator();
+        zoomBy(delta > 0 ? +1 : -1);
         e->accept();
     }
 
-    // ─── [T1.5] Ctrl+0 resets zoom to 100% ──────────────────────────────
-    //
-    // Resets the entire view transform (which is exactly the accumulated
-    // scale, since we never apply any other transform). After reset, also
-    // recenter on the scene contents so the user isn't left looking at
-    // empty space if they had zoomed deep into a corner.
+    // ─── [D-Polish-3] Ctrl+0 routes through resetZoom() (DRY with the
+    // readout-button click handler).
     void keyPressEvent(QKeyEvent* e) override {
         if (e->key() == Qt::Key_0 && (e->modifiers() & Qt::ControlModifier)) {
-            resetTransform();
-            zoomFactor_ = 1.0;
-            // If there are elements, gently re-centre so the user lands on
-            // something visible. If empty, leave the view at the origin.
-            if (!elements.isEmpty()) {
-                centerOn(scene()->itemsBoundingRect().center());
-            }
-            showZoomIndicator();
+            resetZoom();
             e->accept();
             return;
         }
         QGraphicsView::keyPressEvent(e);
     }
 
-    // [T1.5] Keep the zoom indicator anchored at bottom-right when the
+    // [D-Polish-3] Keep the zoom cluster anchored at bottom-right when the
     // viewport resizes (window resize, splitter drag, etc.).
     void resizeEvent(QResizeEvent* e) override {
         QGraphicsView::resizeEvent(e);
-        repositionZoomIndicator();
+        repositionZoomCluster();
     }
 
 private:
-    // [T1.5] Update the indicator text, move it to its anchor position,
-    // make it visible, and (re)start the 2-second auto-hide timer.
-    void showZoomIndicator() {
-        if (!zoomIndicator_) return;
-        zoomIndicator_->setText(
-            tr("Zoom: %1%").arg(int(std::round(zoomFactor_ * 100.0))));
-        zoomIndicator_->adjustSize();
-        repositionZoomIndicator();
-        zoomIndicator_->raise();
-        zoomIndicator_->show();
-        zoomIndicatorTimer_->start();   // resets the countdown
+    // [D-Polish-3] Apply one zoom step (+1 / -1). Called by wheelEvent and
+    // by the [+]/[−] cluster button click handlers — single source of truth
+    // for the bounded step math.
+    void zoomBy(int direction) {
+        if (direction == 0) return;
+        constexpr qreal kStep = 1.15;     // ~15% per notch
+        constexpr qreal kMin  = 0.50;     // 50% lower bound
+        constexpr qreal kMax  = 3.00;     // 300% upper bound
+
+        const qreal factor = (direction > 0) ? kStep : (1.0 / kStep);
+        const qreal target = qBound(kMin, zoomFactor_ * factor, kMax);
+
+        if (!qFuzzyCompare(target, zoomFactor_)) {
+            const qreal applied = target / zoomFactor_;
+            scale(applied, applied);
+            zoomFactor_ = target;
+        }
+        updateZoomDisplay();
     }
 
-    void repositionZoomIndicator() {
-        if (!zoomIndicator_ || !viewport()) return;
+    // [D-Polish-3] Reset zoom to 100% and recenter on content. Called by
+    // Ctrl+0 and the readout-button click handler.
+    void resetZoom() {
+        resetTransform();
+        zoomFactor_ = 1.0;
+        if (!elements.isEmpty()) {
+            centerOn(scene()->itemsBoundingRect().center());
+        }
+        updateZoomDisplay();
+    }
+
+    // [D-Polish-3] Refresh the readout button's text and the clamp-aware
+    // enabled-state of the +/- buttons.
+    void updateZoomDisplay() {
+        if (!btnZoomReadout_) return;
+        const int pct = int(std::round(zoomFactor_ * 100.0));
+        btnZoomReadout_->setText(QString("%1%").arg(pct));
+        constexpr qreal kMin = 0.50, kMax = 3.00;
+        if (btnZoomOut_) btnZoomOut_->setEnabled(zoomFactor_ > kMin + 1e-6);
+        if (btnZoomIn_)  btnZoomIn_->setEnabled(zoomFactor_ < kMax - 1e-6);
+    }
+
+    // [D-Polish-3] Anchor the cluster at bottom-right with a 12 px margin.
+    void repositionZoomCluster() {
+        if (!zoomCluster_ || !viewport()) return;
         const int margin = 12;
-        const int x = viewport()->width()  - zoomIndicator_->width()  - margin;
-        const int y = viewport()->height() - zoomIndicator_->height() - margin;
-        zoomIndicator_->move(qMax(0, x), qMax(0, y));
+        const int x = viewport()->width()  - zoomCluster_->width()  - margin;
+        const int y = viewport()->height() - zoomCluster_->height() - margin;
+        zoomCluster_->move(qMax(0, x), qMax(0, y));
+        zoomCluster_->raise();
     }
 
-    qreal   zoomFactor_         {1.0};
-    QLabel* zoomIndicator_      {nullptr};
-    QTimer* zoomIndicatorTimer_ {nullptr};
+    qreal        zoomFactor_     {1.0};
+    QWidget*     zoomCluster_    {nullptr};
+    QPushButton* btnZoomOut_     {nullptr};
+    QPushButton* btnZoomReadout_ {nullptr};
+    QPushButton* btnZoomIn_      {nullptr};
 
 public slots:
     CanvasElement* addElement(ElementType type, QPointF pos) {

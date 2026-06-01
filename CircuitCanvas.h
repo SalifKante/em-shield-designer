@@ -30,6 +30,15 @@
 #include <QWheelEvent>
 #include <QScrollBar>
 #include <QVector>
+#include <QPushButton>
+#include <QHBoxLayout>
+#include <cmath>
+// [D-Polish-2/3] CircuitBuilderWindow.h defines CBStyle palette + sets
+// CBSTYLE_DECLARED, then includes Styles.h. We need both for the
+// EMStyle::zoomGlyphButtonQSS() / zoomReadoutButtonQSS() helpers below.
+// Same heavy-transitive pattern as D-1's PropertyPanel.h; a future
+// refactor can extract CBStyle to its own tiny header to lighten this.
+#include "CircuitBuilderWindow.h"
 
 using EMCore::TopologyType;
 
@@ -54,6 +63,49 @@ public:
 
         connect(m_scene, &QGraphicsScene::selectionChanged,
                 this, &CircuitCanvas::onSelectionChanged);
+
+        // [D-Polish-3] Zoom feature: Ctrl+wheel = 50%-300% bounded zoom,
+        // Ctrl+0 = reset to 100%, and a persistent [−] [NNN%] [+] button
+        // cluster at bottom-right of the viewport.
+        setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
+        setResizeAnchor(QGraphicsView::AnchorViewCenter);
+        setFocusPolicy(Qt::StrongFocus);
+
+        zoomCluster_ = new QWidget(viewport());
+        auto* clusterLayout = new QHBoxLayout(zoomCluster_);
+        clusterLayout->setContentsMargins(0, 0, 0, 0);
+        clusterLayout->setSpacing(3);
+
+        btnZoomOut_     = new QPushButton("−", zoomCluster_);   // U+2212 minus
+        btnZoomReadout_ = new QPushButton("100%", zoomCluster_);
+        btnZoomIn_      = new QPushButton("+", zoomCluster_);
+
+        btnZoomOut_    ->setFixedSize(28, 24);
+        btnZoomReadout_->setFixedSize(52, 24);
+        btnZoomIn_     ->setFixedSize(28, 24);
+
+        btnZoomOut_    ->setFocusPolicy(Qt::NoFocus);
+        btnZoomReadout_->setFocusPolicy(Qt::NoFocus);
+        btnZoomIn_     ->setFocusPolicy(Qt::NoFocus);
+
+        btnZoomOut_    ->setCursor(Qt::PointingHandCursor);
+        btnZoomReadout_->setCursor(Qt::PointingHandCursor);
+        btnZoomIn_     ->setCursor(Qt::PointingHandCursor);
+
+        btnZoomOut_    ->setStyleSheet(EMStyle::zoomGlyphButtonQSS());
+        btnZoomReadout_->setStyleSheet(EMStyle::zoomReadoutButtonQSS());
+        btnZoomIn_     ->setStyleSheet(EMStyle::zoomGlyphButtonQSS());
+
+        clusterLayout->addWidget(btnZoomOut_);
+        clusterLayout->addWidget(btnZoomReadout_);
+        clusterLayout->addWidget(btnZoomIn_);
+        zoomCluster_->adjustSize();
+
+        connect(btnZoomOut_,     &QPushButton::clicked, this, [this]{ zoomBy(-1); });
+        connect(btnZoomIn_,      &QPushButton::clicked, this, [this]{ zoomBy(+1); });
+        connect(btnZoomReadout_, &QPushButton::clicked, this, [this]{ resetZoom(); });
+
+        updateZoomDisplay();   // initial enabled-state on the +/- buttons
     }
 
     // ── Destructor ────────────────────────────────────────────────────────
@@ -165,6 +217,13 @@ signals:
 protected:
     void keyPressEvent(QKeyEvent* event) override
     {
+        // [D-Polish-3] Ctrl+0 resets zoom via resetZoom() (DRY with the
+        // readout-button click handler).
+        if (event->key() == Qt::Key_0 && (event->modifiers() & Qt::ControlModifier)) {
+            resetZoom();
+            event->accept();
+            return;
+        }
         if(event->key()==Qt::Key_Delete || event->key()==Qt::Key_Backspace){
             removeSelectedSection(); event->accept();
         } else {
@@ -172,20 +231,23 @@ protected:
         }
     }
 
+    // [D-Polish-3.1] Plain scroll zooms (Ctrl optional); CB requires Ctrl.
     void wheelEvent(QWheelEvent* event) override
     {
-        if(event->modifiers() & Qt::ControlModifier){
-            double factor = event->angleDelta().y() > 0 ? 1.15 : 1.0/1.15;
-            scale(factor, factor); event->accept();
-        } else {
+        const int delta = event->angleDelta().y();
+        if (delta == 0) {
             QGraphicsView::wheelEvent(event);
+            return;
         }
+        zoomBy(delta > 0 ? +1 : -1);
+        event->accept();
     }
 
     void resizeEvent(QResizeEvent* event) override
     {
         QGraphicsView::resizeEvent(event);
         fitContent();
+        repositionZoomCluster();   // [D-Polish-3] keep bottom-right anchor
     }
 
 private slots:
@@ -349,6 +411,66 @@ private:
         QRectF bounds = m_scene->itemsBoundingRect().adjusted(-30, -30, 30, 30);
         m_scene->setSceneRect(bounds);
         fitInView(bounds, Qt::KeepAspectRatio);
+        // [D-Polish-2] Re-apply the user's zoom on top of the fit baseline so
+        // 100% means "fit-to-content" and zoom multiplies that. Preserves the
+        // user's zoom across window resize and section add/remove.
+        if (!qFuzzyCompare(zoomFactor_, 1.0))
+            scale(zoomFactor_, zoomFactor_);
+    }
+
+    // [D-Polish-3] Apply one zoom step (+1 / -1). Called by wheelEvent and
+    // by the [+]/[−] cluster button click handlers — single source of truth
+    // for the bounded step math.
+    void zoomBy(int direction)
+    {
+        if (direction == 0) return;
+        constexpr qreal kStep = 1.15;     // ~15% per notch
+        constexpr qreal kMin  = 0.50;     // 50% lower bound
+        constexpr qreal kMax  = 3.00;     // 300% upper bound
+
+        const qreal factor = (direction > 0) ? kStep : (1.0 / kStep);
+        const qreal target = qBound(kMin, zoomFactor_ * factor, kMax);
+
+        if (!qFuzzyCompare(target, zoomFactor_)) {
+            const qreal applied = target / zoomFactor_;
+            scale(applied, applied);
+            zoomFactor_ = target;
+        }
+        updateZoomDisplay();
+    }
+
+    // [D-Polish-3] Reset zoom to 100% and recenter on content. Called by
+    // Ctrl+0 and the readout-button click handler.
+    void resetZoom()
+    {
+        resetTransform();
+        zoomFactor_ = 1.0;
+        if (!m_sections.isEmpty())
+            centerOn(m_scene->itemsBoundingRect().center());
+        updateZoomDisplay();
+    }
+
+    // [D-Polish-3] Refresh the readout button's text and the clamp-aware
+    // enabled-state of the +/- buttons.
+    void updateZoomDisplay()
+    {
+        if (!btnZoomReadout_) return;
+        const int pct = int(std::round(zoomFactor_ * 100.0));
+        btnZoomReadout_->setText(QString("%1%").arg(pct));
+        constexpr qreal kMin = 0.50, kMax = 3.00;
+        if (btnZoomOut_) btnZoomOut_->setEnabled(zoomFactor_ > kMin + 1e-6);
+        if (btnZoomIn_)  btnZoomIn_->setEnabled(zoomFactor_ < kMax - 1e-6);
+    }
+
+    // [D-Polish-3] Anchor the cluster at bottom-right with a 12 px margin.
+    void repositionZoomCluster()
+    {
+        if (!zoomCluster_ || !viewport()) return;
+        const int margin = 12;
+        const int x = viewport()->width()  - zoomCluster_->width()  - margin;
+        const int y = viewport()->height() - zoomCluster_->height() - margin;
+        zoomCluster_->move(qMax(0, x), qMax(0, y));
+        zoomCluster_->raise();
     }
 
     // ── Members ──────────────────────────────────────────────────────
@@ -356,6 +478,13 @@ private:
     QVector<SectionItem*>    m_sections;
     QVector<QGraphicsItem*>  m_decorations;
     TopologyType             m_topology;
+
+    // [D-Polish-3] Zoom feature
+    qreal        zoomFactor_     {1.0};
+    QWidget*     zoomCluster_    {nullptr};
+    QPushButton* btnZoomOut_     {nullptr};
+    QPushButton* btnZoomReadout_ {nullptr};
+    QPushButton* btnZoomIn_      {nullptr};
 };
 
 #endif // CIRCUITCANVAS_H

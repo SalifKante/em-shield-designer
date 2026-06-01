@@ -602,6 +602,19 @@ Check that the destination folder exists and that the file is not currently open
     </message>
 </context>
 <context>
+    <name>CircuitCanvas</name>
+    <message>
+        <location filename="../CircuitCanvas.h" line="78"/>
+        <source>Zoom: 100%</source>
+        <translation>Масштаб: 100%</translation>
+    </message>
+    <message>
+        <location filename="../CircuitCanvas.h" line="430"/>
+        <source>Zoom: %1%</source>
+        <translation>Масштаб: %1%</translation>
+    </message>
+</context>
+<context>
     <name>MainWindow</name>
     <message>
         <location filename="../mainwindow.cpp" line="65"/>
