@@ -1,10 +1,17 @@
 # Build directories
 build/
 build-*/
+build-release/
 cmake-build-*/
 .qtcreator/
 *.pro.user
 *.pro.user.*
+
+# Deployment artifacts (windeployqt output / manual deploy folders)
+EMShieldDesigner-Deploy/
+*-Deploy/
+dist/
+deploy/
 
 # Compiled files
 *.o
