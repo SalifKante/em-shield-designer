@@ -179,7 +179,7 @@
     <message>
         <location filename="../CircuitBuilderWindow.h" line="1158"/>
         <source>SHUNT observation tap.
-SE at this node (Eq. 3.8):
+SE at this node:
 SE=-20·log₁₀|2U/V₀|
 
 Z_L &gt;&gt; Z₀ = non-loading.
@@ -199,7 +199,7 @@ a cavity, enable that
 cavity&apos;s internal
 observation offset.</source>
         <translation>ШУНТ — точка наблюдения.
-SE в этом узле (ур. 3.8):
+SE в этом узле:
 SE=-20·log₁₀|2U/V₀|
 
 Z_L &gt;&gt; Z₀ = без нагрузки.
@@ -675,13 +675,13 @@ Check that the destination folder exists and that the file is not currently open
     </message>
     <message>
         <location filename="../mainwindow.cpp" line="317"/>
-        <source>Cascade  (Fig. 3.10)</source>
-        <translation>Каскад  (рис. 3.10)</translation>
+        <source>Cascade</source>
+        <translation>Каскад</translation>
     </message>
     <message>
         <location filename="../mainwindow.cpp" line="317"/>
-        <source>Star-branch (Fig. 3.11)</source>
-        <translation>Звезда-ветвь (рис. 3.11)</translation>
+        <source>Star-branch</source>
+        <translation>Звезда-ветвь</translation>
     </message>
     <message>
         <location filename="../mainwindow.cpp" line="319"/>
@@ -1050,10 +1050,10 @@ Enable at least one section&apos;s observation in the SECTION PROPERTIES panel, 
     <message>
         <location filename="../PropertyPanel.h" line="167"/>
         <source>Set &gt; 0 to override the global enclosure
-width for this section (Fig. 3.11).
+width for this section.
 0 = use global a.</source>
         <translation>Установите &gt; 0, чтобы переопределить общую ширину
-корпуса для этой секции (рис. 3.11).
+корпуса для этой секции.
 0 = использовать общую a.</translation>
     </message>
     <message>
@@ -1099,17 +1099,17 @@ width for this section (Fig. 3.11).
     <message>
         <location filename="../PropertyPanel.h" line="210"/>
         <source>Relative permittivity of the cover gap filler.
-1.0 = air gap  → uses Eq. (3.22).
-&gt; 1.0 = dielectric filler → uses Eq. (3.24).</source>
+1.0 = air gap.
+&gt; 1.0 = dielectric filler.</source>
         <translation>Относительная диэлектрическая проницаемость наполнителя зазора крышки.
-1.0 = воздушный зазор  → ур. (3.22).
-&gt; 1.0 = диэлектрический наполнитель → ур. (3.24).</translation>
+1.0 = воздушный зазор.
+&gt; 1.0 = диэлектрический наполнитель.</translation>
     </message>
     <message>
         <location filename="../PropertyPanel.h" line="216"/>
         <location filename="../PropertyPanel.h" line="332"/>
-        <source>Eq. (3.22) — air gap</source>
-        <translation>Ур. (3.22) — воздушный зазор</translation>
+        <source>Air gap</source>
+        <translation>Воздушный зазор</translation>
     </message>
     <message>
         <location filename="../PropertyPanel.h" line="225"/>
@@ -1128,8 +1128,8 @@ width for this section (Fig. 3.11).
     </message>
     <message>
         <location filename="../PropertyPanel.h" line="330"/>
-        <source>Eq. (3.24) — dielectric  εr = %1</source>
-        <translation>Ур. (3.24) — диэлектрик  εr = %1</translation>
+        <source>Dielectric (εr = %1)</source>
+        <translation>Диэлектрик (εr = %1)</translation>
     </message>
 </context>
 <context>
@@ -1157,13 +1157,13 @@ Aperture: %4 × %5 mm</source>
     </message>
     <message>
         <location filename="../SectionItem.h" line="258"/>
-        <source>εr=%1 (Eq.3.24)</source>
-        <translation>εr=%1 (ур.3.24)</translation>
+        <source>εr=%1 (dielectric)</source>
+        <translation>εr=%1 (диэлектрик)</translation>
     </message>
     <message>
         <location filename="../SectionItem.h" line="261"/>
-        <source>(air, Eq.3.22)</source>
-        <translation>(воздух, ур.3.22)</translation>
+        <source>(air)</source>
+        <translation>(воздух)</translation>
     </message>
     <message>
         <location filename="../SectionItem.h" line="264"/>

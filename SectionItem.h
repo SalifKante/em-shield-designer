@@ -255,10 +255,10 @@ private:
             tip += "\n" + QCoreApplication::translate("SectionItem", "Cover gap: %1 mm")
             .arg(m_data.cover_gap_mm, 0, 'f', 2);
             if (m_data.cover_eps_r > 1.0 + 1e-9)
-                tip += "  " + QCoreApplication::translate("SectionItem", "εr=%1 (Eq.3.24)")
+                tip += "  " + QCoreApplication::translate("SectionItem", "εr=%1 (dielectric)")
                            .arg(m_data.cover_eps_r, 0, 'f', 2);
             else
-                tip += "  " + QCoreApplication::translate("SectionItem", "(air, Eq.3.22)");
+                tip += "  " + QCoreApplication::translate("SectionItem", "(air)");
         }
         if (m_data.has_dielectric)
             tip += "\n" + QCoreApplication::translate("SectionItem", "Dielectric: εr=%1, h=%2 mm")

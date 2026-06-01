@@ -174,7 +174,7 @@ private:
 
         QLabel* lblWidthHint = new QLabel(tr(
             "Set > 0 to override the global enclosure\n"
-            "width for this section (Fig. 3.11).\n"
+            "width for this section.\n"
             "0 = use global a."));
         lblWidthHint->setStyleSheet("color: #555; font-size: 9px;");
         lblWidthHint->setWordWrap(true);
@@ -219,11 +219,11 @@ private:
         m_spinCoverEpsR->setEnabled(false);
         m_spinCoverEpsR->setToolTip(tr(
             "Relative permittivity of the cover gap filler.\n"
-            "1.0 = air gap  → uses Eq. (3.22).\n"
-            "> 1.0 = dielectric filler → uses Eq. (3.24)."));
+            "1.0 = air gap.\n"
+            "> 1.0 = dielectric filler."));
 
         // Equation hint label — updates dynamically
-        m_lblCoverEq = new QLabel(tr("Eq. (3.22) — air gap"));
+        m_lblCoverEq = new QLabel(tr("Air gap"));
         m_lblCoverEq->setStyleSheet("color: #666; font-size: 9px;");
         m_lblCoverEq->setEnabled(false);
         covLayout->addWidget(m_lblCoverEq);
@@ -339,9 +339,9 @@ private:
         if (!m_lblCoverEq) return;
         if (eps_r > 1.0 + 1e-9)
             m_lblCoverEq->setText(
-                tr("Eq. (3.24) — dielectric  εr = %1").arg(eps_r, 0, 'f', 2));
+                tr("Dielectric (εr = %1)").arg(eps_r, 0, 'f', 2));
         else
-            m_lblCoverEq->setText(tr("Eq. (3.22) — air gap"));
+            m_lblCoverEq->setText(tr("Air gap"));
     }
 
     // -----------------------------------------------------------------------

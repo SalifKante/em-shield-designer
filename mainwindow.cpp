@@ -314,7 +314,7 @@ QWidget* MainWindow::buildLeftPanel()
 
     m_cboTopology = makeComboRow(
         tr("Topology:"),
-        {tr("Cascade  (Fig. 3.10)"), tr("Star-branch (Fig. 3.11)")},
+        {tr("Cascade"), tr("Star-branch")},
         accentEnc);
     m_cboTopology->setToolTip(tr(
         "CASCADE:     sections connected serially in depth.\n"

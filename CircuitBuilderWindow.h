@@ -1156,7 +1156,7 @@ public slots:
         }
         case ElementType::Load:
             addInfo(tr("SHUNT observation tap.\n"
-                    "SE at this node (Eq. 3.8):\n"
+                    "SE at this node:\n"
                     "SE=-20·log₁₀|2U/V₀|\n\n"
                     "Z_L >> Z₀ = non-loading.\n"
                     "Default: 1e9 Ω (correct).\n"
