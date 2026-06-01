@@ -1451,16 +1451,18 @@ private:
     //  Task 1.2 but the rule is inert when no QToolBar is present.
     // ============================================================
     void applyGlobalStyle() {
+        // [D-3] QSplitter::handle now lives in EMStyle::splitterHandleQSS();
+        // appended to keep the existing .arg() chain intact (no renumbering).
         setStyleSheet(QString(R"(
             QMainWindow,QWidget{background:rgb(%1,%2,%3);color:rgb(%4,%5,%6);font-family:'Courier New',monospace;}
             QStatusBar{background:rgb(%7,%8,%9);border-top:1px solid rgb(%10,%11,%12);color:rgb(%13,%14,%15);font-size:11px;}
-            QSplitter::handle{background:rgb(%10,%11,%12);width:1px;height:1px;}
         )")
                           .arg(CBStyle::BG.red())    .arg(CBStyle::BG.green())    .arg(CBStyle::BG.blue())
                           .arg(CBStyle::TEXT.red())  .arg(CBStyle::TEXT.green())  .arg(CBStyle::TEXT.blue())
                           .arg(CBStyle::SURFACE.red()).arg(CBStyle::SURFACE.green()).arg(CBStyle::SURFACE.blue())
                           .arg(CBStyle::BORDER.red()) .arg(CBStyle::BORDER.green()) .arg(CBStyle::BORDER.blue())
-                          .arg(CBStyle::TEXT_MUTED.red()).arg(CBStyle::TEXT_MUTED.green()).arg(CBStyle::TEXT_MUTED.blue()));
+                          .arg(CBStyle::TEXT_MUTED.red()).arg(CBStyle::TEXT_MUTED.green()).arg(CBStyle::TEXT_MUTED.blue())
+                      + EMStyle::splitterHandleQSS());
     }
 
     // ============================================================

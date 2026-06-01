@@ -513,6 +513,24 @@ inline QString zoomReadoutButtonQSS() {
 }
 
 // ----------------------------------------------------------------------------
+//  [D-3] Splitter handle QSS — promoted from CircuitBuilderWindow.h's
+//  applyGlobalStyle(). Flat 1 px line in CBStyle::BORDER. width/height both
+//  set to 1 px so the rule is orientation-agnostic (Qt applies width for
+//  vertical handles and height for horizontal handles). Applying this rule
+//  to a QSplitter overrides any prior setHandleWidth() call.
+// ----------------------------------------------------------------------------
+
+inline QString splitterHandleQSS() {
+    return QString(
+               "QSplitter::handle{"
+               "background:%1;"
+               "width:1px;"
+               "height:1px;"
+               "}")
+        .arg(rgb(CBStyle::BORDER));
+}
+
+// ----------------------------------------------------------------------------
 //  Icon pixmap factory — renders a 16×16 element icon by wrapping the
 //  existing ElementIcon::draw* QPainter helpers.
 //

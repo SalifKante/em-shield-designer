@@ -99,6 +99,7 @@ void MainWindow::setupUI()
 {
     m_splitter = new QSplitter(Qt::Horizontal, this);
     m_splitter->setHandleWidth(2);
+    m_splitter->setStyleSheet(EMStyle::splitterHandleQSS());   // [D-3]
     setCentralWidget(m_splitter);
 
     // ── Left side: brand strip + section stack + primary buttons ─────────
@@ -113,6 +114,7 @@ void MainWindow::setupUI()
 
     auto* rightSpl = new QSplitter(Qt::Vertical);
     rightSpl->setHandleWidth(2);
+    rightSpl->setStyleSheet(EMStyle::splitterHandleQSS());     // [D-3]
     rightSpl->addWidget(m_canvas);
     rightSpl->addWidget(m_plot);
     rightSpl->setStretchFactor(0, 1);
