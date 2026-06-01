@@ -447,16 +447,13 @@ public:
         scrollArea_ = new QScrollArea(this);
         scrollArea_->setWidgetResizable(true);
         scrollArea_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-        scrollArea_->setStyleSheet(QString(
-                                       "QScrollArea{background:%1;border:none;}"
-                                       "QScrollBar:vertical{background:%1;width:10px;margin:0;}"
-                                       "QScrollBar::handle:vertical{background:%2;border-radius:4px;min-height:24px;}"
-                                       "QScrollBar::handle:vertical:hover{background:%3;}"
-                                       "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}"
-                                       )
-                                       .arg(EMStyle::rgb(CBStyle::BG))
-                                       .arg(EMStyle::rgb(CBStyle::BORDER))
-                                       .arg(EMStyle::rgb(CBStyle::TEXT_MUTED)));
+        // [D-6-Builder] Container rule kept inline; scrollbar styling now
+        // lives in EMStyle::scrollAreaQSS() (shared with CB's scrollArea_
+        // and AssemblyCanvas). Byte-identical rendering preserved.
+        scrollArea_->setStyleSheet(
+            QString("QScrollArea{background:%1;border:none;}")
+                .arg(EMStyle::rgb(CBStyle::BG))
+            + EMStyle::scrollAreaQSS());
 
         contentWidget_ = new QWidget(scrollArea_);
         contentWidget_->setStyleSheet(QString("background:%1;")

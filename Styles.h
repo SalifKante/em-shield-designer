@@ -531,6 +531,58 @@ inline QString splitterHandleQSS() {
 }
 
 // ----------------------------------------------------------------------------
+//  [D-4] App-wide QToolTip styling — applied via qApp->setStyleSheet() in
+//  src/main.cpp so every setToolTip() in the app inherits the same look,
+//  identical on Win10 and Win11 (replaces native OS tooltip rendering).
+//
+//  Visual: quiet dark overlay — semi-transparent CBStyle::TEXT background
+//  (α=235) with white text, 1 px CBStyle::BORDER, 4 px radius, 6×10 padding.
+//  Segoe UI 11 (Courier New is reserved for parameter readouts). No drop
+//  shadow — per CLAUDE.md §14 Lesson 1 (T1.6 dual-effect crash with
+//  shadows + dialogs).
+// ----------------------------------------------------------------------------
+
+inline QString tooltipQSS() {
+    return QString(
+               "QToolTip{"
+               "background:%1;"
+               "color:white;"
+               "border:1px solid %2;"
+               "border-radius:4px;"
+               "padding:6px 10px;"
+               "font-family:'Segoe UI',sans-serif;"
+               "font-size:11px;"
+               "}")
+        .arg(rgba(CBStyle::TEXT, 235))
+        .arg(rgb(CBStyle::BORDER));
+}
+
+// ----------------------------------------------------------------------------
+//  [D-6-Builder] Scrollbar QSS — promoted from StackLayerPanel.h's inline
+//  rule. Byte-identical scrollbar geometry & colours; the previous container
+//  rule (QScrollArea{background:...;}) is intentionally NOT in this helper
+//  so each call site can keep its own container background. Each consumer
+//  concatenates its container styling before this helper.
+//
+//  Covers vertical scrollbar only (matches the original — the consumers all
+//  set ScrollBarAlwaysOff / AsNeeded only on the vertical axis or never need
+//  the horizontal one). 10 px width, BG track, BORDER handle, TEXT_MUTED on
+//  hover, arrow buttons hidden via add-line/sub-line height:0.
+// ----------------------------------------------------------------------------
+
+inline QString scrollAreaQSS() {
+    return QString(
+               "QScrollBar:vertical{background:%1;width:10px;margin:0;}"
+               "QScrollBar::handle:vertical{background:%2;border-radius:4px;min-height:24px;}"
+               "QScrollBar::handle:vertical:hover{background:%3;}"
+               "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}"
+               )
+        .arg(rgb(CBStyle::BG))           // %1 scrollbar track bg
+        .arg(rgb(CBStyle::BORDER))       // %2 handle bg
+        .arg(rgb(CBStyle::TEXT_MUTED));  // %3 handle hover bg
+}
+
+// ----------------------------------------------------------------------------
 //  Icon pixmap factory — renders a 16×16 element icon by wrapping the
 //  existing ElementIcon::draw* QPainter helpers.
 //

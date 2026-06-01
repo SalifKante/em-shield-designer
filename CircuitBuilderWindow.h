@@ -721,8 +721,11 @@ public:
         setAcceptDrops(true);
         setRenderHints(QPainter::Antialiasing|QPainter::SmoothPixmapTransform);
         setDragMode(RubberBandDrag);
+        // [D-6-Builder] Canvas background kept; scrollbar styling appended
+        // via the shared EMStyle helper.
         setStyleSheet(QString("background:rgb(%1,%2,%3);border:none;")
-                          .arg(CBStyle::BG.red()).arg(CBStyle::BG.green()).arg(CBStyle::BG.blue()));
+                          .arg(CBStyle::BG.red()).arg(CBStyle::BG.green()).arg(CBStyle::BG.blue())
+                      + EMStyle::scrollAreaQSS());
         setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
         setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
 
@@ -1018,7 +1021,10 @@ public:
         l->addWidget(typeLabel_);
 
         scrollArea_=new QScrollArea(this); scrollArea_->setWidgetResizable(true);
-        scrollArea_->setStyleSheet("border:none;background:transparent;");
+        // [D-6-Builder] Container stays transparent; scrollbar styling via
+        // the shared EMStyle helper.
+        scrollArea_->setStyleSheet(
+            QString("border:none;background:transparent;") + EMStyle::scrollAreaQSS());
         formWidget_=new QWidget; formLayout_=new QFormLayout(formWidget_);
         formLayout_->setContentsMargins(0,6,0,6); formLayout_->setSpacing(6);
         formLayout_->setLabelAlignment(Qt::AlignRight);

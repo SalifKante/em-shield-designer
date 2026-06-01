@@ -308,6 +308,15 @@ int main(int argc, char* argv[])
     }
     // ────────────────────────────────────────────────────────────────────────
 
+    // ── [D-4] APP-WIDE TOOLTIP STYLING ──────────────────────────────────────
+    // Every setToolTip() in the app inherits one QSS rule, identical on
+    // Win10 and Win11 (replaces the OS-native tooltip theme that diverges
+    // between OS versions). Set on qApp directly because window-level
+    // setStyleSheet does not cascade into QToolTip popups. Option A: no
+    // existing app-level stylesheet, so a plain assignment is safe.
+    app.setStyleSheet(EMStyle::tooltipQSS());
+    // ────────────────────────────────────────────────────────────────────────
+
     // ── APPLICATION ICON ────────────────────────────────────────────────────
     // Embedded via the Qt resource system (resources/resources.qrc).
     // Qt propagates this icon as the default QIcon for every top-level window
