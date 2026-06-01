@@ -132,6 +132,7 @@ private:
 
         // ---- Cavity ----
         QGroupBox* grpCavity = new QGroupBox(tr("Cavity"));
+        grpCavity->setStyleSheet(EMStyle::groupBoxQSS());
         QVBoxLayout* cavLayout = new QVBoxLayout;
         cavLayout->setSpacing(4);
 
@@ -169,6 +170,7 @@ private:
         // ---- Width override (STAR_BRANCH) ----
         // 0.0 is the sentinel for "use global a" (maps to section_width_a_mm = -1)
         QGroupBox* grpWidth = new QGroupBox(tr("Width Override (STAR_BRANCH)"));
+        grpWidth->setStyleSheet(EMStyle::groupBoxQSS());
         QVBoxLayout* widthLayout = new QVBoxLayout;
         widthLayout->setSpacing(4);
 
@@ -188,6 +190,7 @@ private:
 
         // ---- Aperture ----
         QGroupBox* grpAperture = new QGroupBox(tr("Aperture"));
+        grpAperture->setStyleSheet(EMStyle::groupBoxQSS());
         QVBoxLayout* apLayout = new QVBoxLayout;
         apLayout->setSpacing(4);
 
@@ -201,6 +204,7 @@ private:
 
         // ---- Cover ----
         QGroupBox* grpCover = new QGroupBox(tr("Aperture Cover"));
+        grpCover->setStyleSheet(EMStyle::groupBoxQSS());
         QVBoxLayout* covLayout = new QVBoxLayout;
         covLayout->setSpacing(4);
 
@@ -233,6 +237,7 @@ private:
 
         // ---- Dielectric fill ----
         QGroupBox* grpDiel = new QGroupBox(tr("Dielectric Fill"));
+        grpDiel->setStyleSheet(EMStyle::groupBoxQSS());
         QVBoxLayout* dielLayout = new QVBoxLayout;
         dielLayout->setSpacing(4);
 

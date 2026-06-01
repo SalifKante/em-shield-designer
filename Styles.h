@@ -426,6 +426,43 @@ inline QString dividerQSS() {
 }
 
 // ----------------------------------------------------------------------------
+//  [D-2] Group box QSS — frame around a related set of form rows.
+//
+//  Same 1px CBStyle::BORDER + 4px radius as the form-field family
+//  (spinSS / comboSS / chkSS) for visual coherence. The title sits in
+//  the top margin via subcontrol-origin:margin, with a small tab whose
+//  background matches the panel (CBStyle::BG) so the border line is cut
+//  cleanly through the title text. Segoe UI bold 11px (the app's
+//  primary font; Courier New is reserved for parameter readouts).
+// ----------------------------------------------------------------------------
+
+inline QString groupBoxQSS() {
+    return QString(
+               "QGroupBox{"
+               "background:transparent;"
+               "border:1px solid %1;"
+               "border-radius:4px;"
+               "margin-top:12px;"
+               "padding:10px 8px 6px 8px;"
+               "font-family:'Segoe UI',sans-serif;"
+               "font-size:11px;"
+               "font-weight:bold;"
+               "color:%2;"
+               "}"
+               "QGroupBox::title{"
+               "subcontrol-origin:margin;"
+               "subcontrol-position:top left;"
+               "left:10px;"
+               "padding:0px 6px;"
+               "background:%3;"
+               "color:%2;"
+               "}"
+               ).arg(rgb(CBStyle::BORDER))     // %1 box border
+        .arg(rgb(CBStyle::TEXT))       // %2 title text
+        .arg(rgb(CBStyle::BG));        // %3 title-tab background (panel BG)
+}
+
+// ----------------------------------------------------------------------------
 //  Icon pixmap factory — renders a 16×16 element icon by wrapping the
 //  existing ElementIcon::draw* QPainter helpers.
 //
