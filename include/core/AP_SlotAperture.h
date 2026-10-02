@@ -118,6 +118,9 @@ public:
             errorMsg = "Aperture: wall thickness must be positive";
             return false;
         }
+        if (!checkWallThickness(w_, t_, errorMsg)) {
+            return false;
+        }
         if (std::isnan(Z0s_) || std::isinf(Z0s_) || Z0s_ <= 0.0) {
             errorMsg = "Aperture: slot-line impedance calculation failed (NaN, Inf, or non-positive)";
             return false;
@@ -190,6 +193,53 @@ public:
     double getApertureHeight()     const { return w_;   }
     double getWallThickness()      const { return t_;   }
 
+    // ========================================================================
+    // WALL-THICKNESS VALIDITY — Schneider effective width
+    // ========================================================================
+    //   wₑ = w − (5t/4π)·[1 + ln(4πw/t)]
+    //
+    // The correction is derived for t ≪ w. When the wall is too thick for the
+    // slot, wₑ becomes zero or negative and the slot-line model has no
+    // physical meaning (squaring kₑ would silently hide the sign). Both the
+    // Quick Simulation validator and the Circuit Builder call
+    // checkWallThickness() before any branch is built.
+
+    static double effectiveWidth(double w, double t) {
+        return w - ((5.0 * t) / (4.0 * M_PI)) * (1.0 + std::log((4.0 * M_PI * w) / t));
+    }
+
+    /** Largest wall thickness t for which wₑ(w, t) > 0 (bisection). */
+    static double maxWallThickness(double w) {
+        double lo = 1e-9 * w;   // wₑ > 0 here
+        double hi = w;          // wₑ < 0 here for every w > 0
+        for (int i = 0; i < 80; ++i) {
+            const double mid = 0.5 * (lo + hi);
+            if (effectiveWidth(w, mid) > 0.0) lo = mid; else hi = mid;
+        }
+        return lo;
+    }
+
+    /**
+     * @brief Check that the front-wall thickness is compatible with the slot.
+     * @param w         Aperture height (dimension along b) [m]
+     * @param t         Wall thickness [m]
+     * @param errorMsg  Filled with a user-facing explanation on failure.
+     * @return true if the thickness-corrected effective width is positive.
+     */
+    static bool checkWallThickness(double w, double t, std::string& errorMsg) {
+        if (w <= 0.0 || t <= 0.0) return true;   // reported by the positivity checks
+        const double we = effectiveWidth(w, t);
+        if (we > 0.0) return true;
+        char buf[320];
+        std::snprintf(buf, sizeof(buf),
+                      "Wall thickness t = %.3f mm is too large for an aperture height "
+                      "w = %.3f mm: the thickness-corrected slot width would be %.3f mm. "
+                      "The aperture model requires t < %.3f mm for this aperture.",
+                      t * 1e3, w * 1e3, we * 1e3, maxWallThickness(w) * 1e3);
+        errorMsg = buf;
+        return false;
+    }
+
 protected:
     // ------------------------------------------------------------------
     // Protected members — accessible to derived classes (AP_SlotWithCover)
@@ -226,8 +276,7 @@ private:
     void calculateSlotLineImpedance() {
 
         // --- Step 1: Schneider effective width ---
-        const double we = w_ - ((5.0 * t_) / (4.0 * M_PI))
-                                   * (1.0 + std::log((4.0 * M_PI * w_) / t_));
+        const double we = effectiveWidth(w_, t_);
 
         // --- Step 2: Modular parameter ---
         const double ke = we / b_;

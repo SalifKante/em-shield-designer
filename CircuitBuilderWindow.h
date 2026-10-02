@@ -2169,6 +2169,18 @@ private:
         const int    Np   = sp.freqPoints;
         const double V0   = (sp.E0 > 0.0) ? sp.E0 : 1.0;
 
+        // Aperture model validity: the wall must be thin compared with each slot.
+        for (const CanvasElement* el : ordered) {
+            const ElementParams& ep = el->params;
+            if (ep.type != ElementType::Aperture && ep.type != ElementType::ApertureWithCover) continue;
+            std::string msg;
+            if (!AP_SlotAperture::checkWallThickness(ep.w_slot_mm * 1e-3, t_g, msg)) {
+                MessageDialog::error(this, tr("Aperture model out of range"), QString::fromStdString(msg));
+                setStatus(tr("Cannot compute — wall too thick for the aperture."), CBStyle::RED);
+                return;
+            }
+        }
+
         // ── Build MNA topology ONCE (outside frequency loop) [D3] ──
         MNASolver solver;
         int nodeIdx  = 0;

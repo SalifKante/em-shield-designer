@@ -232,6 +232,11 @@ struct EnclosureConfig {
                 error_msg = "Section " + std::to_string(i + 1) + ": " + sec_err;
                 return false;
             }
+            // The front-wall thickness t applies to every aperture wall.
+            if (!AP_SlotAperture::checkWallThickness(sections[i].aperture_w, t, sec_err)) {
+                error_msg = "Section " + std::to_string(i + 1) + ": " + sec_err;
+                return false;
+            }
         }
         return true;
     }
