@@ -277,7 +277,9 @@ int main(int argc, char* argv[])
 
     QApplication app(argc, argv);
     app.setApplicationName("EMShieldDesigner");
-    app.setApplicationDisplayName("EMShield Designer");
+    // Qt appends the display name to window titles unless a title already
+    // ends with it; every window title ends with "EMShieldDesigner".
+    app.setApplicationDisplayName("EMShieldDesigner");
     app.setApplicationVersion("1.0");
     app.setOrganizationName("TUSUR");
 

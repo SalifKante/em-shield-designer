@@ -11,8 +11,6 @@ find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets PrintSupport LinguistTools
 # Add Eigen include path (header-only library, no compilation needed)
 include_directories(${CMAKE_SOURCE_DIR}/external/eigen/eigen-5.0.0)
 
-add_definitions(-DDEBUG_APERTURE)
-
 qt_standard_project_setup()
 
 # ── Windows resource script (embeds .ico into .exe) ──────────
@@ -145,6 +143,18 @@ target_link_libraries(em-shield-designer
         Qt::Widgets
         Qt6::PrintSupport
 )
+
+# ── Engine regression tests (no Qt dependency) ───────────────
+# Run: ctest --test-dir build -C Debug --output-on-failure
+enable_testing()
+add_executable(engine_tests
+    tests/engine_tests.cpp
+    src/core/MNASolver.cpp
+)
+target_include_directories(engine_tests PRIVATE ${CMAKE_SOURCE_DIR}/include)
+set_target_properties(engine_tests PROPERTIES AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+add_test(NAME engine_regression COMMAND engine_tests)
+# ─────────────────────────────────────────────────────────────
 
 include(GNUInstallDirs)
 

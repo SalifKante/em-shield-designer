@@ -292,6 +292,10 @@ QWidget* MainWindow::buildLeftPanel()
          tr("3-Section identical"),
          tr("2-Section different"),
          tr("5-Section cascade"),
+         tr("Paper S1: 10×4×10 mm, slot 3×1"),
+         tr("Paper S2: 15×4×15 mm, slot 3×1"),
+         tr("Paper S3: two sections, cascade"),
+         tr("Paper S4: three sections, star"),
          tr("Custom (edit below)")},
         EMStyle::accentFor(EMStyle::AccentRole::Primary));
     m_cboPreset->setItemData(0, 1);
@@ -299,7 +303,11 @@ QWidget* MainWindow::buildLeftPanel()
     m_cboPreset->setItemData(2, 3);
     m_cboPreset->setItemData(3, 4);
     m_cboPreset->setItemData(4, 5);
-    m_cboPreset->setItemData(5, 0);
+    m_cboPreset->setItemData(5, 11);
+    m_cboPreset->setItemData(6, 12);
+    m_cboPreset->setItemData(7, 13);
+    m_cboPreset->setItemData(8, 14);
+    m_cboPreset->setItemData(9, 0);
     connect(m_cboPreset, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MainWindow::onPresetChanged);
 
@@ -698,8 +706,49 @@ void MainWindow::loadPreset(int presetId)
         sec.aperture_l_mm = 60; sec.aperture_w_mm = 60;
         sections.fill(sec, 5);
         break;
+
+    // Validation structures of the journal article (Table 2): b = 4 mm,
+    // t = 0.1 mm, observation point at the centre of each section,
+    // 1 MHz – 40 GHz with 1001 points. These reproduce Figure 8 exactly.
+    case 11:
+    case 12: {
+        const double ad = (presetId == 11) ? 10.0 : 15.0;
+        sec.depth_mm = ad; sec.obs_position_mm = ad / 2.0;
+        sec.aperture_l_mm = 3.0; sec.aperture_w_mm = 1.0;
+        sections = { sec };
+        break;
+    }
+    case 13: {
+        SectionItemData s1;
+        s1.depth_mm = 10.0; s1.obs_position_mm = 5.0;
+        s1.aperture_l_mm = 2.0; s1.aperture_w_mm = 2.0;
+        SectionItemData s2 = s1;
+        s2.depth_mm = 5.0; s2.obs_position_mm = 2.5;
+        sections = { s1, s2 };
+        break;
+    }
+    case 14: {
+        SectionItemData spine;
+        spine.depth_mm = 15.0; spine.obs_position_mm = 7.5;
+        spine.aperture_l_mm = 2.0; spine.aperture_w_mm = 2.0;
+        SectionItemData side = spine;
+        side.section_width_a_mm = 7.5;
+        side.depth_mm = 10.0; side.obs_position_mm = 5.0;
+        sections = { spine, side, side };
+        break;
+    }
     default:
         return;
+    }
+
+    if (presetId >= 11) {
+        m_spinA->setValue((presetId == 11 || presetId == 13) ? 10.0 : 15.0);
+        m_spinB->setValue(4.0);
+        m_spinT->setValue(0.1);
+        m_spinFstart->setValue(1.0);
+        m_spinFstop->setValue(40000.0);
+        m_spinPoints->setValue(1001);
+        m_cboTopology->setCurrentIndex(presetId == 14 ? 1 : 0);
     }
 
     m_canvas->loadPreset(sections);

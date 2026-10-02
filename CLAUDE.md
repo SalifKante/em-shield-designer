@@ -51,8 +51,10 @@ for solving the resulting linear system. Two operating modes:
   engine computes SE for whatever topology was assembled.
 
 Both modes produce SE-vs-frequency plots and CSV export. Validation against
-FEM reference data on four test structures gave mean deviation 3.16–4.98 dB,
-matching or beating the dissertation's own published 4.5–7.4 dB.
+open-source full-wave FDTD simulations (openEMS) on the four test structures of
+the journal article gives a mean absolute deviation of 1.97–3.13 dB and the
+first cavity resonance within 0.3 % (after the October 2026 Eq. 3.15 fix; see
+Section 10).
 
 ---
 
@@ -201,6 +203,10 @@ em-shield-designer/                              project root
 │   └── CircuitGenerator.h                       EnclosureConfig → MNA circuit topology
 │                                                 (CASCADE per Fig 3.10 / STAR_BRANCH per Fig 3.11)
 │
+├── tests/
+│   └── engine_tests.cpp                         engine regression test (no Qt): article
+│                                                 structures S1–S4 vs reference SE, 0.01 dB
+│
 ├── external/eigen/eigen-5.0.0/                  Eigen 3 header-only (vendored)
 │
 ├── resources/
@@ -249,10 +255,9 @@ The file is shown in full in your project. Key facts:
 - **`qt_add_executable`** lists every source file explicitly — there is NO
   glob pattern. If you add a new header, you MUST add it to the
   `qt_add_executable(...)` list, otherwise AUTOMOC will not see it.
-- **`add_definitions(-DDEBUG_APERTURE)`** is enabled unconditionally. This
-  compiles aperture-related `qDebug()` statements into BOTH Debug and Release
-  builds. Should be made conditional on `$<CONFIG:Debug>` before final
-  release distribution.
+- **`engine_tests`** is a plain `add_executable` (no Qt, AUTOMOC off) built
+  from `tests/engine_tests.cpp` + `src/core/MNASolver.cpp` and registered with
+  CTest as `engine_regression`.
 - **Windows resource script** (`resources/app.rc`) is included only when
   building on Windows (`if(WIN32)`).
 - **Eigen** is added via `include_directories(${CMAKE_SOURCE_DIR}/external/eigen/eigen-5.0.0)`
@@ -297,7 +302,7 @@ Three-tier separation:
 | 3.11 | Source vector `V` (only V₀ on source row) | `MNASolver::assembleV()` |
 | 3.12 | `Y_src = 1/Z₀` | `SRC_VoltageSource::stamp()` |
 | 3.13 | `Y_ap` slot-aperture admittance | `AP_SlotAperture::stamp()` |
-| 3.14–3.17 | TL admittance: `Y₁₁=1/(jZ tan kgL)`, `Y₁₂=−1/(Z sin kgL)`, `kg=k₀√(1−(λ/2a)²)`, `Z_g=2πf·μ₀/k_g` | `TL_EmptyCavity::stamp()` |
+| 3.14–3.17 | TL admittance: `Y₁₁=1/(jZ tan kgL)`, `Y₁₂=−1/(jZ sin kgL)` (j restored, see Eq. 3.15 note), `kg=k₀√(1−(λ/2a)²)`, `Z_g=2πf·μ₀/k_g` | `TL_EmptyCavity::stamp()` |
 | 3.18 | Single-section full `Y` matrix | implicit in `MNASolver` per-branch stamps |
 | 3.19 | Dielectric-loaded `kg = (2π√εeff/λ)·√(1−(λ/2a√εeff)²)` | `TL_DielectricCavity::stamp()` |
 | 3.20 | Maxwell-Garnett εeff | optional in `TL_DielectricCavity` |
@@ -541,13 +546,18 @@ elements emitted into the MNA solver's Y).
 #### Eq. 3.15 — Transmission line transfer admittance
 
 ```
-Y₁₂ = Y₂₁ = -1 / (Z_g · sin(k_g · p))
+Y₁₂ = Y₂₁ = -1 / (j · Z_g · sin(k_g · p))
 ```
 
 Variables:
 - Same as Eq. 3.14.
 - The negative sign comes from the sign convention for port currents
   (both currents defined as entering their respective ports).
+- **Correction (October 2026):** the report prints Eq. 3.15 without the
+  imaginary unit j. For a lossless line every Y-entry is purely imaginary,
+  so the j is required. The code omitted it until October 2026; restoring it
+  moved the first resonance onto the openEMS full-wave reference (within
+  0.3 %) and reduced the mean deviation from 3.2–5.4 dB to 2.0–3.1 dB.
 
 The off-diagonal terms describe how voltage at port 1 produces current
 at port 2 and vice versa.
@@ -1006,8 +1016,9 @@ Both rendered via `EMStyle::brandStripText("QuickSim")` /
 - All six branch types implemented and validated against dissertation Eqs.
 - CircuitGenerator: CASCADE + STAR_BRANCH with verbose-print option
 - EnclosureConfig + SectionConfig with `isValid(error_msg)` validation
-- Matches FEM reference to within mean deviation 3.16–4.98 dB on four test
-  structures (better than the dissertation's own 4.5–7.4 dB published values).
+- Matches the openEMS full-wave reference to a mean absolute deviation of
+  1.97–3.13 dB on the four article structures (first resonance within 0.3 %).
+- Guarded by `tests/engine_tests.cpp` (run `ctest`, see Section 13).
 
 **Defence (21 May 2026) — completed successfully**
 
@@ -1025,15 +1036,20 @@ Both rendered via `EMStyle::brandStripText("QuickSim")` /
 
 ### Validation reference numbers
 
-For internal sanity checking — these are the deviation values from the
-post-defence presentation slides:
+Article structures (presets "Paper S1–S4": b = 4 mm, t = 0.1 mm, observation
+point at the centre of section 1, 1–40 GHz) against openEMS (open-source
+FDTD). MAD = mean absolute deviation, computed after the Eq. 3.15 fix:
 
-| Structure | Geometry | Mean dB | MAD dB | RSD % | Dissertation ref |
-|---|---|---|---|---|---|
-| 1 | 1-sect 10×4×10 mm | 3.16 | 2.28 | 163.4 | 7.4 dB (Fig 3.12a) |
-| 2 | 2-sect 15+10 wide | 3.92 | 3.16 | 143.2 | 6.0 dB (Fig 3.19b) |
-| 3 | 2-sect 10+5 narrow | 4.98 | 2.55 | 97.0 | 4.5 dB (Fig 3.19a) |
-| 4 | 3-sect star-branch | 4.57 | 3.30 | 119.1 | 5.6 dB (Fig 3.21) |
+| Structure | Geometry | MAD dB | Median dB | f₁ app / openEMS (GHz) |
+|---|---|---|---|---|
+| 1 | 1 section 10×4×10 mm, slot 3×1 mm | 2.36 | 2.19 | 21.05 / 21.05 |
+| 2 | 1 section 15×4×15 mm, slot 3×1 mm | 2.72 | 1.40 | 14.10 / 14.10 |
+| 3 | cascade 10×4×10 + 10×4×5 mm, slots 2×2 | 1.97 | 1.67 | 21.05 / 21.01 |
+| 4 | star 15×4×15 + 2 × (7.5×4×10) mm, slots 2×2 | 3.13 | 2.00 | 14.10 / 14.06 |
+
+The slide values of May 2026 (2.28 / 3.16 / 2.55 / 3.30 dB) were computed
+with Excel's AVEDEV, which is the dispersion of the errors around their mean,
+not the mean absolute error, and with the pre-fix engine. Do not reuse them.
 
 ---
 
@@ -1143,9 +1159,6 @@ StartupWindow. Persistence via `QSettings`. Runtime switching (no restart).
 **Goal:** Produce a deployable Release `.exe` with all dependencies bundled.
 
 **Scope:**
-- Make `add_definitions(-DDEBUG_APERTURE)` conditional: only in Debug builds.
-  Use generator expression `target_compile_definitions(em-shield-designer
-  PRIVATE $<$<CONFIG:Debug>:DEBUG_APERTURE>)`.
 - Build Release configuration: `cmake --build build --config Release`.
 - Run `windeployqt` to bundle Qt DLLs alongside the .exe.
   - Path: `C:\Qt\6.10.1\msvc2022_64\bin\windeployqt.exe`
@@ -1161,11 +1174,10 @@ StartupWindow. Persistence via `QSettings`. Runtime switching (no restart).
 
 ## 12. Known Issues and Trade-Offs
 
-### Issue 1 — `DEBUG_APERTURE` in Release builds
+### Issue 1 — resolved (October 2026)
 
-`CMakeLists.txt` line `add_definitions(-DDEBUG_APERTURE)` is unconditional.
-Every Release build still includes aperture debug `qDebug()` output.
-Should be made `$<CONFIG:Debug>`-conditional during P4.
+`add_definitions(-DDEBUG_APERTURE)` was defined but never referenced in the
+sources; the line was removed from `CMakeLists.txt`.
 
 ### Issue 2 — Two parallel build folders
 
@@ -1266,6 +1278,9 @@ cmake -S . -B build -G "Ninja Multi-Config" -DCMAKE_PREFIX_PATH="C:/Qt/6.10.1/ms
 # Build Debug
 cmake --build build --config Debug --parallel
 
+# Engine regression test (must pass after any engine change)
+ctest --test-dir build -C Debug --output-on-failure
+
 # Run
 $env:PATH = "C:\Qt\6.10.1\msvc2022_64\bin;" + $env:PATH
 .\build\Debug\em-shield-designer.exe
@@ -1331,9 +1346,9 @@ Both files model SINGLE-section enclosures with non-canonical topology
 (extra back-wall apertures and extra parallel TLs). They are not models
 of the dissertation's multi-section structures.
 
-**Resolution:** Dropped Matlab as reference. FEM data is the true ground
-truth. C++ matches FEM to within mean deviation 3–5 dB, matching or
-beating the dissertation's own published values.
+**Resolution:** Dropped Matlab as reference. Full-wave simulation is the
+ground truth; since October 2026 the reference is openEMS (open source,
+reproducible), see Section 10.
 
 **Generalisable lesson:** Filenames are not documentation. Read the
 incidence matrix and the Y matrix structurally before trusting a
@@ -1405,6 +1420,20 @@ true. Tagged as `[BUGFIX-PARAMS-RESET]` in `BuilderPropertyPanel`.
 OR guard callbacks against firing during structural form rebuilds. Both
 together are belt-and-braces.
 
+### Lesson 7 — A report typo survived into the engine (Eq. 3.15)
+
+**What happened:** the report prints `Y₁₂ = −1/(Z_g·sin β)` without the
+imaginary unit. The code copied it. Results still looked plausible, so the
+error went unnoticed for months and shifted every resonance by up to 0.3 GHz.
+
+**Resolution:** j restored (October 2026); an independent Python
+implementation reproduced the published curves to 0.002 dB, which identified
+the cause; `tests/engine_tests.cpp` now fails if the formula regresses.
+
+**Generalisable lesson:** check printed formulas against first principles
+(here: a lossless two-port must have a purely imaginary Y-matrix), and keep a
+regression test with independently computed reference values.
+
 ---
 
 ## End
@@ -1417,4 +1446,4 @@ Claude. Update it when:
 - A new lesson is learned that future Claude Code sessions should know.
 - A build setup detail changes (Qt version upgrade, new dependency).
 
-Last updated: post-defence, May 2026.
+Last updated: October 2026 (Phase A audit fixes).
