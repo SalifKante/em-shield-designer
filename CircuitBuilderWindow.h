@@ -129,19 +129,22 @@ using namespace EMCore;
 // ============================================================
 //  SPICE-inspired light theme tokens
 // ============================================================
+// Direction A ("Instrument", October 2026): neutral surfaces with a slight
+// blue bias, one accent (blue) for actions and selection, semantic colours
+// only for element types and state.
 namespace CBStyle {
-inline const QColor BG        { 246, 251, 249 };
-inline const QColor SURFACE   { 235, 244, 240 };
-inline const QColor SURFACE2  { 220, 235, 229 };
-inline const QColor BORDER    { 180, 205, 195 };
-inline const QColor BORDER_LT { 210, 228, 222 };
-inline const QColor ACCENT    {  14, 100, 200 };
-inline const QColor GREEN     {  22, 130,  64 };
-inline const QColor ORANGE    { 180,  90,   0 };
-inline const QColor RED       { 195,  30,  30 };
-inline const QColor TEXT      {  24,  36,  32 };
-inline const QColor TEXT_MUTED{  90, 115, 105 };
-inline const QColor TEXT_DIM  { 150, 175, 165 };
+inline const QColor BG        { 255, 255, 255 };   // fields, canvas, plot
+inline const QColor SURFACE   { 250, 251, 252 };   // side panels
+inline const QColor SURFACE2  { 238, 241, 244 };   // hover, header bands
+inline const QColor BORDER    { 201, 207, 214 };   // field outlines
+inline const QColor BORDER_LT { 221, 225, 230 };   // hairline dividers
+inline const QColor ACCENT    {  31,  95, 168 };   // primary action, selection, apertures
+inline const QColor GREEN     {  47, 125,  79 };   // cavities, valid state
+inline const QColor ORANGE    { 180,  98,  27 };   // source
+inline const QColor RED       { 192,  57,  43 };   // observation point, errors
+inline const QColor TEXT      {  28,  34,  41 };
+inline const QColor TEXT_MUTED{  77,  87,  99 };
+inline const QColor TEXT_DIM  { 138, 148, 160 };
 }
 #define CBSTYLE_DECLARED 1
 
@@ -174,13 +177,14 @@ struct ElementParams {
     double E0         { 1.0   };  // V₀ reference [V/m]
     double freqStart  { 1.0   };  // [GHz]
     double freqEnd    { 32.0  };  // [GHz]
-    int    freqPoints { 300   };
+    int    freqPoints { 1001  };  // resolves the narrow cavity resonances
 
     // ── Global cross-section (set on Source, used by all elements)
     // [P1] Stored in mm; converted ×1e-3 to SI metres at the runCompute() boundary.
     double a_mm       { 50.0 };   // waveguide width  [mm]
     double b_h_mm     { 30.0 };   // waveguide height [mm]
-    double t_wall_mm  { 1.5  };   // wall thickness [mm] — matches Phase A default 1.5 mm
+    double t_wall_mm  { 0.1  };   // wall thickness [mm]; 1.5 mm would make the default
+                                  // 2 mm slot's effective width negative (Robinson w_e)
 
     // ── Aperture ─────────────────────────────────────────
     double l_slot_mm  { 40.0 };   // [mm]
@@ -585,7 +589,7 @@ public:
         // ── Label underneath ───────────────────────────────────────────
         // Label always uses the type accent colour so it doubles as a
         // colour key when the icon is far from the eye.
-        QFont f("Courier New", 7);
+        QFont f("Segoe UI", 7);
         p->setFont(f);
         p->setPen(QPen(ac, 1.0));
         p->drawText(QRectF(0, H + 2, W, 16), Qt::AlignCenter, params.label);
@@ -604,13 +608,13 @@ public:
 
     static QString defaultLabel(ElementType t) {
         switch(t){
-        case ElementType::Source:            return "E₀ Source";
-        case ElementType::Aperture:          return "Aperture";
-        case ElementType::ApertureWithCover: return "AP+Cover";
-        case ElementType::EmptyCavity:       return "Cavity";
-        case ElementType::DielectricCavity:  return "Diel. Cav.";
-        case ElementType::Load:              return "Obs. Point";
-        } return "Element";
+        case ElementType::Source:            return QCoreApplication::translate("BuilderPropertyPanel", "Source");
+        case ElementType::Aperture:          return QCoreApplication::translate("BuilderPropertyPanel", "Aperture");
+        case ElementType::ApertureWithCover: return QCoreApplication::translate("BuilderPropertyPanel", "Covered aperture");
+        case ElementType::EmptyCavity:       return QCoreApplication::translate("BuilderPropertyPanel", "Cavity");
+        case ElementType::DielectricCavity:  return QCoreApplication::translate("BuilderPropertyPanel", "Dielectric cavity");
+        case ElementType::Load:              return QCoreApplication::translate("BuilderPropertyPanel", "Observation point");
+        } return QCoreApplication::translate("BuilderPropertyPanel", "Element");
     }
 
 protected:
@@ -723,7 +727,7 @@ public:
         setDragMode(RubberBandDrag);
         // [D-6-Builder] Canvas background kept; scrollbar styling appended
         // via the shared EMStyle helper.
-        setStyleSheet(QString("background:rgb(%1,%2,%3);border:none;")
+        setStyleSheet(QString("QGraphicsView{background:rgb(%1,%2,%3);border:none;}")
                           .arg(CBStyle::BG.red()).arg(CBStyle::BG.green()).arg(CBStyle::BG.blue())
                       + EMStyle::scrollAreaQSS());
         setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
@@ -931,6 +935,8 @@ public slots:
             scene()->addItem(w); wires.append(w);
         }
         scene()->update();
+        if (!elements.isEmpty())
+            centerOn(scene()->itemsBoundingRect().center());   // keep the chain in view
         // [T1.4] Auto-arrange may renumber elements left-to-right.
         // Emit circuitChanged so the StackLayerPanel rebuilds with the
         // new ordering. Symmetric with addElement / removeSelected /
@@ -1012,8 +1018,9 @@ public:
                           .arg(CBStyle::TEXT.red()).arg(CBStyle::TEXT.green()).arg(CBStyle::TEXT.blue()));
         auto* l=new QVBoxLayout(this); l->setContentsMargins(10,10,10,8); l->setSpacing(4);
 
-        headerLabel_=new QLabel(tr("PROPERTIES"),this);
-        headerLabel_->setStyleSheet(dimLabel());
+        headerLabel_=new QLabel(tr("Properties"),this);
+        headerLabel_->setStyleSheet(QString("color:%1;font-family:'Segoe UI';font-size:12px;font-weight:600;")
+                                        .arg(EMStyle::rgb(CBStyle::TEXT)));
         l->addWidget(headerLabel_);
 
         typeLabel_=new QLabel(tr("No element selected"),this);
@@ -1021,45 +1028,30 @@ public:
         l->addWidget(typeLabel_);
 
         scrollArea_=new QScrollArea(this); scrollArea_->setWidgetResizable(true);
+        scrollArea_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         // [D-6-Builder] Container stays transparent; scrollbar styling via
         // the shared EMStyle helper.
         scrollArea_->setStyleSheet(
-            QString("border:none;background:transparent;") + EMStyle::scrollAreaQSS());
+            QString("QScrollArea{border:none;background:transparent;}") + EMStyle::scrollAreaQSS());
         formWidget_=new QWidget; formLayout_=new QFormLayout(formWidget_);
         formLayout_->setContentsMargins(0,6,0,6); formLayout_->setSpacing(6);
-        formLayout_->setLabelAlignment(Qt::AlignRight);
+        formLayout_->setLabelAlignment(Qt::AlignLeft);
+        formLayout_->setRowWrapPolicy(QFormLayout::WrapLongRows);   // long (Russian) labels go above the field
         scrollArea_->setWidget(formWidget_); l->addWidget(scrollArea_);
 
         // [FIX-B4] Correct 5-element circuit matching Phase A (Fig. 3.7)
         placeholderLabel_=new QLabel(tr(
-            "  CORRECT CIRCUIT:\n\n"
-            "  1. [Source]\n"
-            "       a, b, t_wall,\n"
-            "       f_start, f_end\n"
-            "     ↓  (series, 0→1)\n"
-            "  2. [Aperture]\n"
-            "       l_slot, w_slot\n"
-            "     ↓  (SHUNT 1→0)\n"
-            "  3. [Cavity]  L\n"
-            "       e.g. 150 mm\n"
-            "       optional internal\n"
-            "       obs (offset = p)\n"
-            "     ↓  (series 1→2)\n"
-            "     … repeat Aperture\n"
-            "       + Cavity pairs …\n"
-            "  4. [Obs.Pt]  (last)\n"
-            "     ↓  (SHUNT, last)\n"
-            "  ╚═ Back-wall short\n"
-            "     auto-added at end\n\n"
-            "  A Cavity with internal\n"
-            "  observation splits into\n"
-            "  TL_p + TL_(L−p) with an\n"
-            "  obs node between them.\n\n"
-            "  Use Arrange after\n"
-            "  dropping elements.\n\n"
-            "  Click element to\n"
-            "  edit its params."),this);
-        placeholderLabel_->setStyleSheet(dimLabel()+" font-size:10px;");
+            "Drag elements onto the canvas in this order:\n"
+            "1. Source\n"
+            "2. Aperture\n"
+            "3. Cavity\n"
+            "4. Observation point\n\n"
+            "Repeat Aperture and Cavity for each further section. "
+            "The short circuit at the back wall is added automatically.\n\n"
+            "To observe inside a cavity, select it and set the observation offset p.\n\n"
+            "Click an element to edit its parameters."),this);
+        placeholderLabel_->setWordWrap(true);
+        placeholderLabel_->setStyleSheet(mutedLabel());
         placeholderLabel_->setAlignment(Qt::AlignLeft);
         l->addWidget(placeholderLabel_);
         // No final stretch: the enclosing left-panel layout owns the stretch
@@ -1083,105 +1075,92 @@ public slots:
         currentElement_=el; clearForm();
         if(!el){
             showPlaceholder(true);
-            typeLabel_->setText("No element selected");
+            typeLabel_->setText(tr("No element selected"));
             m_loading_ = false;
             return;
         }
         showPlaceholder(false);
         QColor col=el->accentColor();
         typeLabel_->setText(typeToStr(el->params.type));
-        typeLabel_->setStyleSheet(QString("font-family:'Courier New';font-size:11px;font-weight:bold;"
+        typeLabel_->setStyleSheet(QString("font-family:'Segoe UI';font-size:12px;font-weight:600;"
                                           "color:rgb(%1,%2,%3);").arg(col.red()).arg(col.green()).arg(col.blue()));
 
         // [T1.2-E] Explicit [this] captures throughout. The fn callbacks
         // are captured by value (default behaviour for std::function).
-        addLineEdit(tr("Label:"), el->params.label,
+        addLineEdit(tr("Name"), el->params.label,
                     [this](const QString& v){ currentElement_->params.label = v; currentElement_->update(); });
 
         switch(el->params.type){
         case ElementType::Source:
-            addDouble(tr("E₀ [V/m]:"),     el->params.E0,         0.01,  1000,  0.1,
-                      [this](double v){ currentElement_->params.E0 = v; });
+            addDouble(tr("Field E₀, V/m"),     el->params.E0,         0.01,  1000,  0.1,
+                      [this](double v){ currentElement_->params.E0 = v; }, 2);
             // [FIX-B1] min=0.0001 GHz = 100 kHz — allows Phase A's 1 MHz start
-            addDouble(tr("f start [GHz]:"), el->params.freqStart, 0.0001, 100, 0.001,
-                      [this](double v){ currentElement_->params.freqStart = v; });
-            addDouble(tr("f end [GHz]:"),  el->params.freqEnd,    0.1,    100, 1.0,
-                      [this](double v){ currentElement_->params.freqEnd = v; });
-            addInt   (tr("Points:"),       el->params.freqPoints, 10,    2000, 50,
+            addDouble(tr("Start, GHz"), el->params.freqStart, 0.0001, 100, 0.001,
+                      [this](double v){ currentElement_->params.freqStart = v; }, 4);
+            addDouble(tr("Stop, GHz"),  el->params.freqEnd,    0.1,    100, 1.0,
+                      [this](double v){ currentElement_->params.freqEnd = v; }, 3);
+            addInt   (tr("Points"),       el->params.freqPoints, 10,    2000, 50,
                    [this](int v)   { currentElement_->params.freqPoints = v; });
-            addSep(tr("Cross-section (shared by all):"));
-            addDouble(tr("a [mm]:"),       el->params.a_mm,       1.0,  1000.0, 5.0,
+            addSep(tr("Enclosure cross-section"));
+            addDouble(tr("Width a, mm"),       el->params.a_mm,       1.0,  1000.0, 5.0,
                       [this](double v){ currentElement_->params.a_mm = v; }, 1);
-            addDouble(tr("b [mm]:"),       el->params.b_h_mm,     1.0,  1000.0, 5.0,
+            addDouble(tr("Height b, mm"),       el->params.b_h_mm,     1.0,  1000.0, 5.0,
                       [this](double v){ currentElement_->params.b_h_mm = v; }, 1);
-            addDouble(tr("t_wall [mm]:"),  el->params.t_wall_mm,  0.1,  100.0,  0.1,
+            addDouble(tr("Wall thickness t, mm"),  el->params.t_wall_mm,  0.1,  100.0,  0.1,
                       [this](double v){ currentElement_->params.t_wall_mm = v; }, 2);
             break;
         case ElementType::Aperture:
-            addDouble(tr("l_slot [mm]:"), el->params.l_slot_mm, 1.0,  1000.0, 2.0,
+            addDouble(tr("Slot width l, mm"), el->params.l_slot_mm, 1.0,  1000.0, 2.0,
                       [this](double v){ currentElement_->params.l_slot_mm = v; }, 1);
-            addDouble(tr("w_slot [mm]:"), el->params.w_slot_mm, 0.1,  100.0,  0.5,
+            addDouble(tr("Slot height w, mm"), el->params.w_slot_mm, 0.1,  100.0,  0.5,
                       [this](double v){ currentElement_->params.w_slot_mm = v; }, 2);
             break;
         case ElementType::ApertureWithCover:
-            addDouble(tr("l_slot [mm]:"), el->params.l_slot_mm,   1.0,  1000.0, 2.0,
+            addDouble(tr("Slot width l, mm"), el->params.l_slot_mm,   1.0,  1000.0, 2.0,
                       [this](double v){ currentElement_->params.l_slot_mm = v; }, 1);
-            addDouble(tr("w_slot [mm]:"), el->params.w_slot_mm,   0.1,  100.0,  0.5,
+            addDouble(tr("Slot height w, mm"), el->params.w_slot_mm,   0.1,  100.0,  0.5,
                       [this](double v){ currentElement_->params.w_slot_mm = v; }, 2);
-            addDouble(tr("τ gap [mm]:"),  el->params.tau_cover_mm, 0.1, 10.0,   0.1,
+            addDouble(tr("Cover gap τ, mm"),  el->params.tau_cover_mm, 0.1, 10.0,   0.1,
                       [this](double v){ currentElement_->params.tau_cover_mm = v; }, 2);
             break;
         case ElementType::EmptyCavity: {
-            addDouble(tr("L [mm]:"), el->params.L_cavity_mm, 1.0, 2000.0, 10.0,
+            addDouble(tr("Depth L, mm"), el->params.L_cavity_mm, 1.0, 2000.0, 10.0,
                       [this](double v){ currentElement_->params.L_cavity_mm = v; }, 1);
             // [P2] Optional internal observation split.
-            auto* obsChk = addCheckBox(tr("Has internal observation"), el->params.has_internal_obs,
+            auto* obsChk = addCheckBox(tr("Observation point inside"), el->params.has_internal_obs,
                       [this](bool on){ currentElement_->params.has_internal_obs = on; });
-            auto* offSpin = addDouble(tr("obs offset [mm]:"), el->params.obs_offset_mm, 0.1, 2000.0, 1.0,
+            auto* offSpin = addDouble(tr("Offset p, mm"), el->params.obs_offset_mm, 0.1, 2000.0, 1.0,
                       [this](double v){ currentElement_->params.obs_offset_mm = v; }, 1);
             offSpin->setEnabled(el->params.has_internal_obs);
             connect(obsChk, &QCheckBox::toggled, offSpin, &QWidget::setEnabled);
             break;
         }
         case ElementType::DielectricCavity: {
-            addDouble(tr("L [mm]:"),      el->params.L_cavity_mm,     1.0,  2000.0, 10.0,
+            addDouble(tr("Depth L, mm"),      el->params.L_cavity_mm,     1.0,  2000.0, 10.0,
                       [this](double v){ currentElement_->params.L_cavity_mm = v; }, 1);
-            addDouble(tr("h_diel [mm]:"), el->params.h_dielectric_mm, 0.1,  1000.0, 1.0,
+            addDouble(tr("Layer thickness h, mm"), el->params.h_dielectric_mm, 0.1,  1000.0, 1.0,
                       [this](double v){ currentElement_->params.h_dielectric_mm = v; }, 2);
-            addDouble("ε_r:",        el->params.eps_r,         1.0,   100.0, 0.5,
-                      [this](double v){ currentElement_->params.eps_r = v; });
+            addDouble(tr("Permittivity εr"),        el->params.eps_r,         1.0,   100.0, 0.5,
+                      [this](double v){ currentElement_->params.eps_r = v; }, 2);
             // [P2] Optional internal observation split.
-            auto* obsChk = addCheckBox(tr("Has internal observation"), el->params.has_internal_obs,
+            auto* obsChk = addCheckBox(tr("Observation point inside"), el->params.has_internal_obs,
                       [this](bool on){ currentElement_->params.has_internal_obs = on; });
-            auto* offSpin = addDouble(tr("obs offset [mm]:"), el->params.obs_offset_mm, 0.1, 2000.0, 1.0,
+            auto* offSpin = addDouble(tr("Offset p, mm"), el->params.obs_offset_mm, 0.1, 2000.0, 1.0,
                       [this](double v){ currentElement_->params.obs_offset_mm = v; }, 1);
             offSpin->setEnabled(el->params.has_internal_obs);
             connect(obsChk, &QCheckBox::toggled, offSpin, &QWidget::setEnabled);
             break;
         }
         case ElementType::Load:
-            addInfo(tr("SHUNT observation tap.\n"
-                    "SE at this node:\n"
-                    "SE=-20·log₁₀|2U/V₀|\n\n"
-                    "Z_L >> Z₀ = non-loading.\n"
-                    "Default: 1e9 Ω (correct).\n"
-                    "WARNING: 377Ω = matched\n"
-                    "load → kills resonances!\n\n"
-                    "CORRECT CIRCUIT ORDER:\n"
-                    "Source → Aperture →\n"
-                    "Cavity → … → Obs.Pt\n"
-                    "(Z=1e9, must be last)\n"
-                    "Back-wall short added\n"
-                    "automatically.\n\n"
-                    "For an obs point inside\n"
-                    "a cavity, enable that\n"
-                    "cavity's internal\n"
-                    "observation offset."));
+            addInfo(tr("SE is evaluated at this node: SE = −20·log₁₀|2U/V₀|. "
+                    "Keep the load impedance much larger than Z₀ (default 1 GΩ); "
+                    "a matched 377 Ω load would damp the cavity resonances. "
+                    "It must be the last element; the back-wall short is added automatically."));
             // [FIX-D4] max=1e10 covers the 1e9 default; step=1e6 for navigation
-            addDouble("Z_L real [Ω]:", el->params.ZL_real,  0.001,    1.0e10, 1.0e6,
-                      [this](double v){ currentElement_->params.ZL_real = v; });
-            addDouble("Z_L imag [Ω]:", el->params.ZL_imag, -1.0e9,    1.0e9,  1.0e3,
-                      [this](double v){ currentElement_->params.ZL_imag = v; });
+            addDouble(tr("Load resistance, Ω"), el->params.ZL_real,  0.001,    1.0e10, 1.0e6,
+                      [this](double v){ currentElement_->params.ZL_real = v; }, 0);
+            addDouble(tr("Load reactance, Ω"), el->params.ZL_imag, -1.0e9,    1.0e9,  1.0e3,
+                      [this](double v){ currentElement_->params.ZL_imag = v; }, 1);
             break;
         }
 
@@ -1209,22 +1188,22 @@ private:
     bool m_loading_{false};
 
     QString dimLabel()   const {
-        return QString("color:rgb(%1,%2,%3);font-family:'Courier New';font-size:10px;letter-spacing:1px;")
+        return QString("color:rgb(%1,%2,%3);font-family:'Segoe UI';font-size:10px;")
         .arg(CBStyle::TEXT_DIM.red()).arg(CBStyle::TEXT_DIM.green()).arg(CBStyle::TEXT_DIM.blue());
     }
     QString mutedLabel() const {
-        return QString("color:rgb(%1,%2,%3);font-family:'Courier New';font-size:11px;")
+        return QString("color:rgb(%1,%2,%3);font-family:'Segoe UI';font-size:11px;")
         .arg(CBStyle::TEXT_MUTED.red()).arg(CBStyle::TEXT_MUTED.green()).arg(CBStyle::TEXT_MUTED.blue());
     }
     QString typeToStr(ElementType t) {
         switch(t){
-        case ElementType::Source:            return "SOURCE";
-        case ElementType::Aperture:          return "APERTURE (shunt)";
-        case ElementType::ApertureWithCover: return "APERTURE + COVER (shunt)";
-        case ElementType::EmptyCavity:       return "EMPTY CAVITY";
-        case ElementType::DielectricCavity:  return "DIELECTRIC CAVITY";
-        case ElementType::Load:              return "OBS. POINT (shunt)";
-        } return "ELEMENT";
+        case ElementType::Source:            return tr("Source");
+        case ElementType::Aperture:          return tr("Aperture");
+        case ElementType::ApertureWithCover: return tr("Covered aperture");
+        case ElementType::EmptyCavity:       return tr("Cavity");
+        case ElementType::DielectricCavity:  return tr("Dielectric cavity");
+        case ElementType::Load:              return tr("Observation point");
+        } return tr("Element");
     }
     void clearForm(){
         // [BUGFIX-PARAMS-RESET]
@@ -1370,20 +1349,16 @@ private:
     }
     void addSep(const QString& title) {
         auto* ll=new QLabel(title,formWidget_);
-        ll->setStyleSheet(QString("color:rgb(%1,%2,%3);font-family:'Courier New';font-size:9px;"
-                                  "letter-spacing:1px;margin-top:6px;border-top:1px solid rgb(%4,%5,%6);")
-                              .arg(CBStyle::TEXT_DIM.red()).arg(CBStyle::TEXT_DIM.green()).arg(CBStyle::TEXT_DIM.blue())
-                              .arg(CBStyle::BORDER.red()).arg(CBStyle::BORDER.green()).arg(CBStyle::BORDER.blue()));
+        ll->setStyleSheet(QString("color:%1;font-family:'Segoe UI';font-size:12px;font-weight:600;"
+                                  "margin-top:6px;padding-top:8px;border-top:1px solid %2;")
+                              .arg(EMStyle::rgb(CBStyle::TEXT))
+                              .arg(EMStyle::rgb(CBStyle::BORDER_LT)));
         formLayout_->addRow(ll);
     }
     void addInfo(const QString& text) {
         auto* ll=new QLabel(text,formWidget_); ll->setWordWrap(true);
-        ll->setStyleSheet(QString("color:rgb(%1,%2,%3);background:rgb(%4,%5,%6);"
-                                  "border:1px solid rgb(%7,%8,%9);border-radius:4px;"
-                                  "font-family:'Courier New';font-size:9px;padding:5px 6px;margin-bottom:4px;")
-                              .arg(CBStyle::TEXT_MUTED.red()).arg(CBStyle::TEXT_MUTED.green()).arg(CBStyle::TEXT_MUTED.blue())
-                              .arg(CBStyle::SURFACE2.red()).arg(CBStyle::SURFACE2.green()).arg(CBStyle::SURFACE2.blue())
-                              .arg(CBStyle::BORDER.red()).arg(CBStyle::BORDER.green()).arg(CBStyle::BORDER.blue()));
+        ll->setStyleSheet(QString("color:%1;font-family:'Segoe UI';font-size:11px;padding:2px 0px 6px 0px;")
+                              .arg(EMStyle::rgb(CBStyle::TEXT_MUTED)));
         formLayout_->addRow(ll);
     }
 };
@@ -1460,7 +1435,7 @@ private:
         // [D-3] QSplitter::handle now lives in EMStyle::splitterHandleQSS();
         // appended to keep the existing .arg() chain intact (no renumbering).
         setStyleSheet(QString(R"(
-            QMainWindow,QWidget{background:rgb(%1,%2,%3);color:rgb(%4,%5,%6);font-family:'Courier New',monospace;}
+            QMainWindow,QWidget{background:rgb(%1,%2,%3);color:rgb(%4,%5,%6);font-family:'Segoe UI';}
             QStatusBar{background:rgb(%7,%8,%9);border-top:1px solid rgb(%10,%11,%12);color:rgb(%13,%14,%15);font-size:11px;}
         )")
                           .arg(CBStyle::BG.red())    .arg(CBStyle::BG.green())    .arg(CBStyle::BG.blue())
@@ -1497,17 +1472,17 @@ private:
         root->setSpacing(0);
 
         // ── 1. Brand strip ────────────────────────────────────────
-        auto* brand = new QLabel(EMStyle::brandStripText(), panel);
+        auto* brand = new QLabel(EMStyle::brandStripText(tr("Circuit Builder")), panel);
         brand->setTextFormat(Qt::RichText);
         brand->setStyleSheet(EMStyle::brandStripQSS());
-        brand->setAlignment(Qt::AlignCenter);
+        brand->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
         root->addWidget(brand);
 
         // ── 2. Property editor (existing) ─────────────────────────
         propPanel_ = new BuilderPropertyPanel(panel);
         // Property editor expands to take remaining vertical room.
         propPanel_->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
-        root->addWidget(propPanel_, /*stretch*/ 1);
+        // Added to the layout after the element palette (build first, then edit).
 
         // ── 3. ELEMENTS section ───────────────────────────────────
         auto* elementsSection = new QWidget(panel);
@@ -1517,7 +1492,7 @@ private:
         elementsLayout->setContentsMargins(10, 4, 10, 8);
         elementsLayout->setSpacing(4);
 
-        auto* elementsHeader = new QLabel(tr("ELEMENTS"), elementsSection);
+        auto* elementsHeader = new QLabel(tr("Elements"), elementsSection);
         elementsHeader->setStyleSheet(EMStyle::sectionHeaderQSS());
         elementsLayout->addWidget(elementsHeader);
 
@@ -1525,16 +1500,17 @@ private:
         const QVector<PSpec> palette = {
                                         { ElementType::Source,            tr("Source"),   CBStyle::ORANGE },
                                         { ElementType::Aperture,          tr("Aperture"), CBStyle::ACCENT },
-                                        { ElementType::ApertureWithCover, tr("AP+Cover"), CBStyle::ACCENT },
+                                        { ElementType::ApertureWithCover, tr("Covered aperture"), CBStyle::ACCENT },
                                         { ElementType::EmptyCavity,       tr("Cavity"),   CBStyle::GREEN  },
-                                        { ElementType::DielectricCavity,  tr("Diel.Cav"), CBStyle::GREEN  },
-                                        { ElementType::Load,              tr("Obs.Pt"),   CBStyle::RED    },
+                                        { ElementType::DielectricCavity,  tr("Dielectric cavity"), CBStyle::GREEN  },
+                                        { ElementType::Load,              tr("Observation point"), CBStyle::RED    },
                                         };
         for (const auto& s : palette) {
             auto* btn = new PaletteButton(s.t, s.n, s.c, elementsSection);
             elementsLayout->addWidget(btn);
         }
         root->addWidget(elementsSection);
+        root->addWidget(propPanel_, /*stretch*/ 1);
 
         // ── 4. ACTIONS section ────────────────────────────────────
         auto* actionsSection = new QWidget(panel);
@@ -1544,13 +1520,13 @@ private:
         actionsLayout->setContentsMargins(10, 4, 10, 4);
         actionsLayout->setSpacing(4);
 
-        auto* actionsHeader = new QLabel(tr("ACTIONS"), actionsSection);
+        auto* actionsHeader = new QLabel(tr("Canvas"), actionsSection);
         actionsHeader->setStyleSheet(EMStyle::sectionHeaderQSS());
         actionsLayout->addWidget(actionsHeader);
 
-        btnArrange_ = makeActionButton(tr("Arrange"),    EMStyle::AccentRole::Neutral, actionsSection);
-        btnDelete_  = makeActionButton(tr("Delete"),     EMStyle::AccentRole::Danger,  actionsSection);
-        btnClear_   = makeActionButton(tr("Clear"),      EMStyle::AccentRole::Source,  actionsSection);
+        btnArrange_ = makeActionButton(tr("Arrange in order"),    EMStyle::AccentRole::Neutral, actionsSection);
+        btnDelete_  = makeActionButton(tr("Delete selected"),     EMStyle::AccentRole::Danger,  actionsSection);
+        btnClear_   = makeActionButton(tr("Clear canvas"),      EMStyle::AccentRole::Source,  actionsSection);
         actionsLayout->addWidget(btnArrange_);
         actionsLayout->addWidget(btnDelete_);
         actionsLayout->addWidget(btnClear_);
@@ -1600,17 +1576,16 @@ private:
                                           "QLabel{"
                                           "color:%1;"
                                           "background:transparent;"
-                                          "font-family:'Courier New',monospace;"
-                                          "font-size:10px;"
-                                          "font-weight:bold;"
-                                          "letter-spacing:1px;"
+                                          "font-family:'Segoe UI';"
+                                          "font-size:11px;"
+                                          "font-weight:600;"
                                           "}"
                                           ).arg(EMStyle::rgb(CBStyle::RED)));
         validityLayout->addWidget(validityLabel_, /*stretch*/ 1);
 
         primaryLayout->addWidget(validityRow_);
 
-        btnCompute_ = new QPushButton(tr("COMPUTE"), primarySection);
+        btnCompute_ = new QPushButton(tr("Compute"), primarySection);
         btnCompute_->setMinimumHeight(38);
         btnCompute_->setStyleSheet(EMStyle::primaryButtonQSS(EMStyle::accentFor(EMStyle::AccentRole::Primary)));
         btnCompute_->setCursor(Qt::PointingHandCursor);
@@ -1699,9 +1674,7 @@ private:
 
         // ── Status bar ────────────────────────────────────────────
         statusLbl_ = new QLabel(tr(
-            "Ready  —  correct order: "
-            "[Source]→[Aperture]→[Cavity(p)]→[Obs.Pt]→[Cavity(d-p)]  |  "
-            "Last Cavity auto-terminates to ground  |  Compute"));
+            "Drag elements onto the canvas: Source → Aperture → Cavity → Observation point."));
         statusLbl_->setStyleSheet(QString("color:rgb(%1,%2,%3);")
                                       .arg(CBStyle::TEXT_MUTED.red()).arg(CBStyle::TEXT_MUTED.green()).arg(CBStyle::TEXT_MUTED.blue()));
         statusBar()->addWidget(statusLbl_);
@@ -1712,29 +1685,42 @@ private:
     //  setupPlot — identical configuration to Phase A mainwindow
     // ============================================================
     void setupPlot() {
-        m_plot->plotLayout()->insertRow(0);
-        auto* title = new QCPTextElement(m_plot,
-                                         tr("Circuit Builder — Shielding Effectiveness"),
-                                         QFont("sans-serif", 11, QFont::Bold));
-        m_plot->plotLayout()->addElement(0, 0, title);
-
-        m_plot->xAxis->setLabel(tr("Frequency [GHz]"));
-        m_plot->yAxis->setLabel(tr("SE [dB]"));
+        m_plot->xAxis->setLabel(tr("Frequency, GHz"));
+        m_plot->yAxis->setLabel(tr("SE, dB"));
         m_plot->xAxis->setRange(0.0, 32.0);
         m_plot->yAxis->setRange(0.0, 120.0);
 
-        m_plot->xAxis->grid()->setSubGridVisible(true);
-        m_plot->yAxis->grid()->setSubGridVisible(true);
-        QPen gp(QColor(200,200,200)); gp.setStyle(Qt::DashLine);
+        const QFont labelFont("Segoe UI", 9);
+        m_plot->xAxis->setLabelFont(labelFont);
+        m_plot->yAxis->setLabelFont(labelFont);
+        m_plot->xAxis->setTickLabelFont(labelFont);
+        m_plot->yAxis->setTickLabelFont(labelFont);
+        m_plot->xAxis->setLabelColor(CBStyle::TEXT);
+        m_plot->yAxis->setLabelColor(CBStyle::TEXT);
+        m_plot->xAxis->setTickLabelColor(CBStyle::TEXT_MUTED);
+        m_plot->yAxis->setTickLabelColor(CBStyle::TEXT_MUTED);
+
+        // Closed frame and light grid, as in Quick Simulation and the article.
+        m_plot->axisRect()->setupFullAxesBox(true);
+        for (QCPAxis* ax : { m_plot->xAxis, m_plot->yAxis, m_plot->xAxis2, m_plot->yAxis2 }) {
+            ax->setBasePen(QPen(CBStyle::TEXT_MUTED));
+            ax->setTickPen(QPen(CBStyle::TEXT_MUTED));
+            ax->setSubTickPen(QPen(CBStyle::TEXT_DIM));
+        }
+        m_plot->xAxis2->setTickLabels(false);
+        m_plot->yAxis2->setTickLabels(false);
+        m_plot->xAxis->grid()->setSubGridVisible(false);
+        m_plot->yAxis->grid()->setSubGridVisible(false);
+        const QPen gp(QColor(236, 239, 242));
         m_plot->xAxis->grid()->setPen(gp);
         m_plot->yAxis->grid()->setPen(gp);
-        QPen sg(QColor(230,230,230)); sg.setStyle(Qt::DotLine);
-        m_plot->xAxis->grid()->setSubGridPen(sg);
-        m_plot->yAxis->grid()->setSubGridPen(sg);
+        m_plot->xAxis->grid()->setZeroLinePen(Qt::NoPen);
+        m_plot->yAxis->grid()->setZeroLinePen(Qt::NoPen);
 
-        m_plot->legend->setVisible(true);
-        m_plot->legend->setFont(QFont("sans-serif",9));
-        m_plot->legend->setBrush(QBrush(QColor(255,255,255,200)));
+        m_plot->legend->setVisible(false);          // shown once curves exist
+        m_plot->legend->setFont(labelFont);
+        m_plot->legend->setBrush(QBrush(QColor(255, 255, 255, 230)));
+        m_plot->legend->setBorderPen(QPen(CBStyle::BORDER_LT));
         m_plot->axisRect()->insetLayout()->setInsetAlignment(0, Qt::AlignTop|Qt::AlignRight);
 
         m_plot->setInteractions(QCP::iRangeDrag | QCP::iRangeZoom |
@@ -1774,8 +1760,8 @@ private:
                     auto* el = canvas_->addElement(t, pos);
                     propPanel_->showElement(el);
                     setStatus(
-                        tr("Added: %1  |  Arrange left→right: "
-                           "Source → Aperture → Cavity → Obs.Pt").arg(el->params.label),
+                        tr("Added %1. Order: Source → Aperture → Cavity → Observation point.")
+                            .arg(el->params.label),
                         CBStyle::ACCENT);
                 });
         connect(canvas_, &AssemblyCanvas::elementSelected, this,
@@ -1971,16 +1957,16 @@ private:
         case ValidationCode::Ok:                  return tr("Circuit valid");
         case ValidationCode::EmptyCanvas:         return tr("Empty canvas");
         case ValidationCode::SourceMissing:       return tr("Source missing");
-        case ValidationCode::SourceMultiple:      return tr("Multiple Sources");
+        case ValidationCode::SourceMultiple:      return tr("More than one source");
         case ValidationCode::SourceNotFirst:      return tr("Source must be first");
-        case ValidationCode::ObsMissing:          return tr("Obs.Pt missing");
-        case ValidationCode::ObsMultiple:         return tr("Multiple Obs.Pts");
-        case ValidationCode::ObsNotLast:          return tr("Obs.Pt must be last");
+        case ValidationCode::ObsMissing:          return tr("Observation point missing");
+        case ValidationCode::ObsMultiple:         return tr("More than one observation point");
+        case ValidationCode::ObsNotLast:          return tr("Observation point must be last");
         case ValidationCode::ApertureMissing:     return tr("Aperture missing");
         case ValidationCode::CavityMissing:       return tr("Cavity missing");
-        case ValidationCode::UnbalancedSections:  return tr("Unbalanced sections");
+        case ValidationCode::UnbalancedSections:  return tr("Each aperture needs a cavity");
         case ValidationCode::PatternViolation:    return tr("Invalid order");
-        case ValidationCode::CavityObsOffsetRange:return tr("Obs offset out of range");
+        case ValidationCode::CavityObsOffsetRange:return tr("Observation offset outside the cavity");
         }
         return QString();
     }
@@ -2093,10 +2079,9 @@ private:
                                           "QLabel{"
                                           "color:%1;"
                                           "background:transparent;"
-                                          "font-family:'Courier New',monospace;"
-                                          "font-size:10px;"
-                                          "font-weight:bold;"
-                                          "letter-spacing:1px;"
+                                          "font-family:'Segoe UI';"
+                                          "font-size:11px;"
+                                          "font-weight:600;"
                                           "}"
                                           ).arg(EMStyle::rgb(dotColor)));
 
@@ -2358,11 +2343,11 @@ private:
         const double seMin = valid.isEmpty() ? 0.0 : *std::min_element(valid.begin(),valid.end());
         const double seMax = valid.isEmpty() ? 0.0 : *std::max_element(valid.begin(),valid.end());
         setStatus(
-            tr("OK  %1 pts · %2 curve(s) · SE: %3…%4 dB · %5–%6 GHz")
+            tr("Computed %1 frequencies · observation points: %2 · SE from %3 to %4 dB · %5–%6 GHz")
                 .arg(Np).arg(obsNodes.size())
                 .arg(seMin,0,'f',1).arg(seMax,0,'f',1)
                 .arg(sp.freqStart,0,'f',1).arg(sp.freqEnd,0,'f',1),
-            CBStyle::GREEN);
+            CBStyle::TEXT_MUTED);
     }
 
     // ============================================================
@@ -2400,10 +2385,12 @@ private:
         QPen zp(QColor(128,128,128,150)); zp.setStyle(Qt::DashLine); zl->setPen(zp);
 
         setupInteractiveItems();
+        m_plot->legend->setVisible(m_plot->graphCount() > 0);
         m_plot->replot();
     }
 
     void clearPlot() {
+        m_plot->legend->setVisible(false);
         m_plot->clearPlottables();
         m_plot->clearItems();
         m_crosshairLine = nullptr;
@@ -2430,7 +2417,7 @@ private:
         m_readoutLabel = new QCPItemText(m_plot);
         m_readoutLabel->setPositionAlignment(Qt::AlignLeft|Qt::AlignTop);
         m_readoutLabel->position->setType(QCPItemPosition::ptPlotCoords);
-        m_readoutLabel->setFont(QFont("Courier New",9));
+        m_readoutLabel->setFont(QFont("Segoe UI",9));
         m_readoutLabel->setColor(Qt::black);
         m_readoutLabel->setPadding(QMargins(6,4,6,4));
         m_readoutLabel->setBrush(QBrush(QColor(255,255,240,230)));

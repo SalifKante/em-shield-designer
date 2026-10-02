@@ -9,5 +9,7 @@
         <file alias="emshield_64.png">icons/emshield_64.png</file>
         <file alias="emshield_128.png">icons/emshield_128.png</file>
         <file alias="emshield_256.png">icons/emshield_256.png</file>
+        <file alias="chevron_down.png">icons/chevron_down.png</file>
+        <file alias="check_white.png">icons/check_white.png</file>
     </qresource>
 </RCC>

@@ -73,7 +73,7 @@ enum class AccentRole {
     Cavity,
     Observation,
     Neutral,
-    Primary,    // green — used for the Compute button
+    Primary,    // accent blue — used for the Compute button
     Danger      // red   — used for the Delete button
 };
 
@@ -83,7 +83,7 @@ inline QColor accentFor(AccentRole r) {
     case AccentRole::Aperture:    return CBStyle::ACCENT;
     case AccentRole::Cavity:      return CBStyle::GREEN;
     case AccentRole::Observation: return CBStyle::RED;
-    case AccentRole::Primary:     return CBStyle::GREEN;
+    case AccentRole::Primary:     return CBStyle::ACCENT;
     case AccentRole::Danger:      return CBStyle::RED;
     case AccentRole::Neutral:
     default:                      return CBStyle::TEXT_MUTED;
@@ -98,14 +98,13 @@ inline QString sectionHeaderQSS() {
     return QString(
                "QLabel{"
                "color:%1;"
-               "font-family:'Courier New',monospace;"
-               "font-size:10px;"
-               "font-weight:bold;"
-               "letter-spacing:2px;"
-               "padding:6px 0px 4px 0px;"
+               "font-family:'Segoe UI';"
+               "font-size:12px;"
+               "font-weight:600;"
+               "padding:10px 0px 4px 0px;"
                "border-top:1px solid %2;"
                "}"
-               ).arg(rgb(CBStyle::TEXT_DIM)).arg(rgb(CBStyle::BORDER_LT));
+               ).arg(rgb(CBStyle::TEXT)).arg(rgb(CBStyle::BORDER_LT));
 }
 
 // First section header (no top border, since it follows the brand strip).
@@ -113,18 +112,17 @@ inline QString sectionHeaderFirstQSS() {
     return QString(
                "QLabel{"
                "color:%1;"
-               "font-family:'Courier New',monospace;"
-               "font-size:10px;"
-               "font-weight:bold;"
-               "letter-spacing:2px;"
+               "font-family:'Segoe UI';"
+               "font-size:12px;"
+               "font-weight:600;"
                "padding:6px 0px 4px 0px;"
                "}"
-               ).arg(rgb(CBStyle::TEXT_DIM));
+               ).arg(rgb(CBStyle::TEXT));
 }
 
 // ----------------------------------------------------------------------------
-//  Brand strip QSS — relocated from the deleted toolbar to the top of the
-//  left panel.  Renders the EM<Shield><Builder> wordmark.
+//  Window header — the mode name as plain text at the top of the left panel
+//  (Direction A replaces the former two-colour "EMShield<Mode>" wordmark).
 // ----------------------------------------------------------------------------
 
 inline QString brandStripQSS() {
@@ -132,34 +130,19 @@ inline QString brandStripQSS() {
                "QLabel{"
                "background:%1;"
                "color:%2;"
-               "font-family:'Courier New',monospace;"
-               "font-size:13px;"
-               "letter-spacing:1px;"
-               "padding:10px 8px;"
+               "font-family:'Segoe UI';"
+               "font-size:14px;"
+               "font-weight:600;"
+               "padding:12px 14px;"
                "border-bottom:1px solid %3;"
                "}"
-               ).arg(rgb(CBStyle::SURFACE2))
+               ).arg(rgb(CBStyle::SURFACE))
         .arg(rgb(CBStyle::TEXT))
-        .arg(rgb(CBStyle::BORDER));
+        .arg(rgb(CBStyle::BORDER_LT));
 }
 
-inline QString brandStripText() {
-    return QString(
-               "&nbsp;EM<span style='color:%1'>Shield</span>"
-               "<b style='color:%2'>Builder</b>"
-               ).arg(rgb(CBStyle::TEXT_MUTED)).arg(rgb(CBStyle::ACCENT));
-}
-
-// [T2.1a] Parameterised version — lets each window pick its own suffix.
-// The "EMShield" portion stays consistent across the app; the suffix
-// identifies the active mode (Builder, QuickSim, ...).
-inline QString brandStripText(const QString& suffix) {
-    return QString(
-               "&nbsp;EM<span style='color:%1'>Shield</span>"
-               "<b style='color:%2'>%3</b>"
-               ).arg(rgb(CBStyle::TEXT_MUTED))
-        .arg(rgb(CBStyle::ACCENT))
-        .arg(suffix);
+inline QString brandStripText(const QString& title) {
+    return title.toHtmlEscaped();
 }
 
 // ----------------------------------------------------------------------------
@@ -186,23 +169,17 @@ inline QString elementButtonQSS(const QColor& accent) {
                "background:%1;"
                "color:%2;"
                "border:1px solid %3;"
-               "border-left:4px solid %4;"
                "border-radius:4px;"
-               "font-family:'Courier New',monospace;"
-               "font-size:11px;"
-               "font-weight:500;"
+               "font-family:'Segoe UI';"
+               "font-size:12px;"
                "}"
                "QPushButton:hover{"
                "background:%5;"
-               "color:%4;"
                "border:1px solid %4;"
-               "border-left:4px solid %4;"
                "}"
                "QPushButton:pressed{"
                "background:%6;"
-               "color:%4;"
-               "border:1.5px solid %4;"
-               "border-left:4px solid %4;"
+               "border:1px solid %4;"
                "}"
                "QPushButton:disabled{"
                "background:%1;"
@@ -238,8 +215,8 @@ inline QString actionButtonQSS(const QColor& accent) {
                "color:%2;"
                "border:1px solid %3;"
                "border-radius:4px;"
-               "font-family:'Courier New',monospace;"
-               "font-size:11px;"
+               "font-family:'Segoe UI';"
+               "font-size:12px;"
                "}"
                "QPushButton:hover{"
                "background:%4;"
@@ -282,11 +259,10 @@ inline QString primaryButtonQSS(const QColor& accent) {
                "background:%1;"
                "color:white;"
                "border:1px solid %2;"
-               "border-radius:5px;"
-               "font-family:'Courier New',monospace;"
-               "font-size:12px;"
-               "font-weight:bold;"
-               "letter-spacing:1px;"
+               "border-radius:4px;"
+               "font-family:'Segoe UI';"
+               "font-size:13px;"
+               "font-weight:600;"
                "padding:0px 12px;"
                "}"
                "QPushButton:hover{"
@@ -330,11 +306,13 @@ inline QString spinSS(QColor accent) {
                "QDoubleSpinBox,QSpinBox,QLineEdit{"
                "background:%1;color:%2;"
                "border:1px solid %3;border-radius:4px;padding:3px 6px;"
-               "font-family:'Courier New';font-size:11px;}"
+               "font-family:'Segoe UI';font-size:12px;}"
                "QDoubleSpinBox:focus,QSpinBox:focus,QLineEdit:focus{"
                "border:1px solid %4;}"
                "QDoubleSpinBox:disabled,QSpinBox:disabled,QLineEdit:disabled{"
                "background:%5;color:%6;}"
+               "QAbstractSpinBox::up-button,QAbstractSpinBox::down-button{"
+               "width:0px;border:none;}"
                )
         .arg(rgb(CBStyle::BG))         // %1 background
         .arg(rgb(CBStyle::TEXT))       // %2 text
@@ -348,7 +326,7 @@ inline QString lblSS() {
     return QString(
                "color:%1;"
                "background:transparent;"
-               "font-family:'Courier New';font-size:10px;"
+               "font-family:'Segoe UI';font-size:12px;"
                ).arg(rgb(CBStyle::TEXT_MUTED));
 }
 
@@ -357,31 +335,28 @@ inline QString comboSS(QColor accent) {
                "QComboBox{"
                "background:%1;color:%2;"
                "border:1px solid %3;border-radius:4px;padding:3px 6px;"
-               "font-family:'Courier New';font-size:11px;}"
+               "font-family:'Segoe UI';font-size:12px;}"
                "QComboBox:focus{border:1px solid %4;}"
                "QComboBox::drop-down{"
                "subcontrol-origin:padding;subcontrol-position:top right;"
                "width:18px;border:none;}"
                "QComboBox::down-arrow{"
-               "image:none;"
-               "border-left:4px solid transparent;"
-               "border-right:4px solid transparent;"
-               "border-top:5px solid %5;"
-               "margin-right:6px;}"
+               "image:url(:/icons/chevron_down.png);"
+               "width:10px;height:6px;"
+               "margin-right:8px;}"
                "QComboBox QAbstractItemView{"
                "background:%1;color:%2;"
                "border:1px solid %3;"
-               "selection-background-color:%6;"
+               "selection-background-color:%5;"
                "selection-color:white;"
-               "font-family:'Courier New';font-size:11px;"
+               "font-family:'Segoe UI';font-size:12px;"
                "outline:0;}"
                )
         .arg(rgb(CBStyle::BG))         // %1 background
         .arg(rgb(CBStyle::TEXT))       // %2 text
         .arg(rgb(CBStyle::BORDER))     // %3 idle border
         .arg(rgb(accent))              // %4 focus border (accent)
-        .arg(rgb(CBStyle::TEXT_MUTED)) // %5 arrow color
-        .arg(rgb(accent));             // %6 dropdown selection color
+        .arg(rgb(accent));             // %5 dropdown selection color
 }
 
 // ----------------------------------------------------------------------------
@@ -394,11 +369,12 @@ inline QString comboSS(QColor accent) {
 
 inline QString chkSS(QColor accent) {
     return QString(
-               "QCheckBox{color:%1;font-family:'Courier New';font-size:10px;spacing:6px;}"
+               "QCheckBox{color:%1;font-family:'Segoe UI';font-size:12px;spacing:6px;}"
                "QCheckBox:disabled{color:%2;}"
                "QCheckBox::indicator{width:13px;height:13px;border:1px solid %3;"
                "border-radius:3px;background:%4;}"
-               "QCheckBox::indicator:checked{background:%5;border:1px solid %5;}"
+               "QCheckBox::indicator:checked{background:%5;border:1px solid %5;"
+               "image:url(:/icons/check_white.png);}"
                "QCheckBox::indicator:disabled{border:1px solid %6;background:%7;}")
         .arg(rgb(CBStyle::TEXT))        // %1 label text
         .arg(rgb(CBStyle::TEXT_DIM))    // %2 disabled label
@@ -433,7 +409,7 @@ inline QString dividerQSS() {
 //  the top margin via subcontrol-origin:margin, with a small tab whose
 //  background matches the panel (CBStyle::BG) so the border line is cut
 //  cleanly through the title text. Segoe UI bold 11px (the app's
-//  primary font; Courier New is reserved for parameter readouts).
+//  only UI typeface since Direction A, October 2026).
 // ----------------------------------------------------------------------------
 
 inline QString groupBoxQSS() {
@@ -441,12 +417,12 @@ inline QString groupBoxQSS() {
                "QGroupBox{"
                "background:transparent;"
                "border:1px solid %1;"
-               "border-radius:4px;"
+               "border-radius:6px;"
                "margin-top:12px;"
-               "padding:10px 8px 6px 8px;"
-               "font-family:'Segoe UI',sans-serif;"
-               "font-size:11px;"
-               "font-weight:bold;"
+               "padding:12px 10px 8px 10px;"
+               "font-family:'Segoe UI';"
+               "font-size:12px;"
+               "font-weight:600;"
                "color:%2;"
                "}"
                "QGroupBox::title{"
@@ -457,16 +433,16 @@ inline QString groupBoxQSS() {
                "background:%3;"
                "color:%2;"
                "}"
-               ).arg(rgb(CBStyle::BORDER))     // %1 box border
+               ).arg(rgb(CBStyle::BORDER_LT))  // %1 box border
         .arg(rgb(CBStyle::TEXT))       // %2 title text
-        .arg(rgb(CBStyle::BG));        // %3 title-tab background (panel BG)
+        .arg(rgb(CBStyle::SURFACE));   // %3 title-tab background (panel colour)
 }
 
 // ----------------------------------------------------------------------------
 //  [D-Polish-3] Zoom cluster QSS — the persistent [−] [NNN%] [+] cluster
 //  anchored bottom-right of both canvases. Two helpers because the glyph
 //  buttons use Segoe UI 14 bold (visible math symbols) while the readout
-//  uses Courier New 11 bold (monospace digits). Both share border / bg /
+//  uses Segoe UI 11 semibold. Both share border / bg /
 //  hover / pressed visuals. The readout has no :disabled state (clicking
 //  it is always meaningful as a reset-to-100%).
 // ----------------------------------------------------------------------------
@@ -476,7 +452,7 @@ inline QString zoomGlyphButtonQSS() {
                "QPushButton{"
                "background:%1;color:%2;"
                "border:1px solid %3;border-radius:4px;"
-               "font-family:'Segoe UI',sans-serif;font-size:14px;font-weight:bold;"
+               "font-family:'Segoe UI';font-size:14px;font-weight:600;"
                "padding:0px;"
                "}"
                "QPushButton:hover{background:%4;border:1px solid %5;color:%5;}"
@@ -498,7 +474,7 @@ inline QString zoomReadoutButtonQSS() {
                "QPushButton{"
                "background:%1;color:%2;"
                "border:1px solid %3;border-radius:4px;"
-               "font-family:'Courier New',monospace;font-size:11px;font-weight:bold;"
+               "font-family:'Segoe UI';font-size:11px;font-weight:600;"
                "padding:0px;"
                "}"
                "QPushButton:hover{background:%4;border:1px solid %5;color:%5;}"
@@ -537,7 +513,7 @@ inline QString splitterHandleQSS() {
 //
 //  Visual: quiet dark overlay — semi-transparent CBStyle::TEXT background
 //  (α=235) with white text, 1 px CBStyle::BORDER, 4 px radius, 6×10 padding.
-//  Segoe UI 11 (Courier New is reserved for parameter readouts). No drop
+//  Segoe UI 11 (the single UI typeface). No drop
 //  shadow — per CLAUDE.md §14 Lesson 1 (T1.6 dual-effect crash with
 //  shadows + dialogs).
 // ----------------------------------------------------------------------------
@@ -572,10 +548,16 @@ inline QString tooltipQSS() {
 
 inline QString scrollAreaQSS() {
     return QString(
-               "QScrollBar:vertical{background:%1;width:10px;margin:0;}"
-               "QScrollBar::handle:vertical{background:%2;border-radius:4px;min-height:24px;}"
+               "QScrollBar:vertical{background:%1;width:8px;margin:0;border:none;}"
+               "QScrollBar::handle:vertical{background:%2;border-radius:3px;min-height:24px;}"
                "QScrollBar::handle:vertical:hover{background:%3;}"
                "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}"
+               "QScrollBar:horizontal{background:%1;height:8px;margin:0;border:none;}"
+               "QScrollBar::handle:horizontal{background:%2;border-radius:3px;min-width:24px;}"
+               "QScrollBar::handle:horizontal:hover{background:%3;}"
+               "QScrollBar::add-line:horizontal,QScrollBar::sub-line:horizontal{width:0;}"
+               "QScrollBar::add-page,QScrollBar::sub-page{background:none;}"
+               "QAbstractScrollArea::corner{background:%1;border:none;}"
                )
         .arg(rgb(CBStyle::BG))           // %1 scrollbar track bg
         .arg(rgb(CBStyle::BORDER))       // %2 handle bg

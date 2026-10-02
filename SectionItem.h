@@ -117,15 +117,17 @@ public:
         const double ap_h = BOX_HEIGHT * 0.6;
         const double ap_y = (BOX_HEIGHT - ap_h) / 2.0;
 
+        // Direction A palette: accent blue for an open slot, source orange
+        // for a slot closed by a cover.
         QColor apColor = m_data.has_cover
-                             ? QColor(180, 80, 80)
-                             : QColor(80, 80, 180);
+                             ? QColor(180,  98,  27)
+                             : QColor( 31,  95, 168);
         painter->setPen(Qt::NoPen);
         painter->setBrush(apColor);
         painter->drawRect(QRectF(0.0, ap_y, APERTURE_WIDTH, ap_h));
 
         painter->setPen(Qt::white);
-        painter->setFont(QFont("sans-serif", 6));
+        painter->setFont(QFont("Segoe UI", 6));
         painter->drawText(QRectF(0.0, ap_y, APERTURE_WIDTH, ap_h),
                           Qt::AlignCenter,
                           m_data.has_cover ? "C" : "A");
@@ -146,37 +148,38 @@ public:
             painter->setBrush(grad);
         } else {
             painter->setBrush(hovered
-                                  ? QColor(245, 248, 255)
-                                  : QColor(250, 252, 255));
+                                  ? QColor(246, 248, 251)
+                                  : QColor(255, 255, 255));
         }
 
         QPen borderPen;
-        if (selected)      borderPen = QPen(QColor( 37,  99, 235), 2.5);
-        else if (hovered)  borderPen = QPen(QColor(100, 140, 200), 1.5);
-        else               borderPen = QPen(QColor(120, 140, 170), 1.2);
+        if (selected)      borderPen = QPen(QColor( 31,  95, 168), 2.0);
+        else if (hovered)  borderPen = QPen(QColor(120, 135, 150), 1.2);
+        else               borderPen = QPen(QColor(160, 170, 182), 1.0);
         painter->setPen(borderPen);
         painter->drawRoundedRect(boxRect, 4, 4);
 
         // ---- Section label ------------------------------------------------
-        painter->setPen(QColor(40, 50, 70));
-        painter->setFont(QFont("sans-serif", 10, QFont::Bold));
+        painter->setPen(QColor(28, 34, 41));
+        painter->setFont(QFont("Segoe UI", 9, QFont::DemiBold));
         painter->drawText(boxRect.adjusted(0, 6, 0, 0),
                           Qt::AlignHCenter | Qt::AlignTop,
                           QString("S%1").arg(m_index + 1));
 
         // ---- Depth text ---------------------------------------------------
-        painter->setPen(QColor(80, 100, 130));
-        painter->setFont(QFont("sans-serif", 7));
+        painter->setPen(QColor(77, 87, 99));
+        painter->setFont(QFont("Segoe UI", 7));
         painter->drawText(boxRect.adjusted(4, 0, -4, -4),
                           Qt::AlignHCenter | Qt::AlignBottom,
-                          QString("%1 mm").arg(m_data.depth_mm, 0, 'f', 0));
+                          QCoreApplication::translate("SectionItem", "d = %1 mm")
+                              .arg(m_data.depth_mm, 0, 'f', 1));
 
         // ---- Aperture dimensions ------------------------------------------
         painter->drawText(boxRect.adjusted(4, 22, -4, 0),
                           Qt::AlignHCenter | Qt::AlignTop,
-                          QCoreApplication::translate("SectionItem", "Ap: %1×%2")
-                              .arg(m_data.aperture_l_mm, 0, 'f', 0)
-                              .arg(m_data.aperture_w_mm, 0, 'f', 0));
+                          QCoreApplication::translate("SectionItem", "Slot %1 × %2 mm")
+                              .arg(m_data.aperture_l_mm, 0, 'g', 4)
+                              .arg(m_data.aperture_w_mm, 0, 'g', 4));
 
         // ---- Observation dot ----------------------------------------------
         if (m_data.has_observation) {
@@ -186,21 +189,22 @@ public:
             const double obs_x = APERTURE_WIDTH + obs_ratio * BOX_WIDTH;
             const double obs_y = BOX_HEIGHT / 2.0;
 
+            // Red dot with its label beside it (not inside the dot).
             painter->setPen(Qt::NoPen);
-            painter->setBrush(QColor(220, 38, 38));
-            painter->drawEllipse(QPointF(obs_x, obs_y), 5.0, 5.0);
+            painter->setBrush(QColor(192, 57, 43));
+            painter->drawEllipse(QPointF(obs_x, obs_y + 6.0), 3.5, 3.5);
 
-            painter->setPen(Qt::white);
-            painter->setFont(QFont("sans-serif", 6, QFont::Bold));
-            painter->drawText(QRectF(obs_x - 5, obs_y - 5, 10, 10),
-                              Qt::AlignCenter,
+            painter->setPen(QColor(192, 57, 43));
+            painter->setFont(QFont("Segoe UI", 7, QFont::DemiBold));
+            painter->drawText(QRectF(obs_x + 5.0, obs_y, 24.0, 12.0),
+                              Qt::AlignLeft | Qt::AlignVCenter,
                               QString("P%1").arg(m_index + 1));
         }
 
         // ---- Dielectric εr label ------------------------------------------
         if (m_data.has_dielectric) {
             painter->setPen(QColor(100, 120, 180));
-            painter->setFont(QFont("sans-serif", 6));
+            painter->setFont(QFont("Segoe UI", 6));
             painter->drawText(boxRect.adjusted(4, 36, -4, 0),
                               Qt::AlignHCenter | Qt::AlignTop,
                               QString("εr=%1")
@@ -210,19 +214,13 @@ public:
         // ---- Cover εr label (when dielectric gap is active) ---------------
         if (m_data.has_cover && m_data.cover_eps_r > 1.0 + 1e-9) {
             painter->setPen(QColor(160, 60, 60));
-            painter->setFont(QFont("sans-serif", 6));
+            painter->setFont(QFont("Segoe UI", 6));
             // Draw small label on the aperture slot
             painter->drawText(QRectF(0.0, ap_y - 10, APERTURE_WIDTH + 20, 10),
                               Qt::AlignLeft | Qt::AlignVCenter,
                               QString("ε%1").arg(m_data.cover_eps_r, 0, 'f', 1));
         }
 
-        // ---- Selection glow -----------------------------------------------
-        if (selected) {
-            painter->setPen(Qt::NoPen);
-            painter->setBrush(QColor(37, 99, 235, 20));
-            painter->drawRoundedRect(boxRect.adjusted(-3, -3, 3, 3), 6, 6);
-        }
     }
 
     QPainterPath shape() const override {

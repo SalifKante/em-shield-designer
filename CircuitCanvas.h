@@ -59,7 +59,7 @@ public:
         setViewportUpdateMode(QGraphicsView::SmartViewportUpdate);
         setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-        setBackgroundBrush(QColor(248, 250, 252));
+        setBackgroundBrush(QColor(255, 255, 255));
 
         connect(m_scene, &QGraphicsScene::selectionChanged,
                 this, &CircuitCanvas::onSelectionChanged);
@@ -309,19 +309,19 @@ private:
         const double srcR = 14.0;
         auto* srcCircle = m_scene->addEllipse(
             x - srcR, wireY - srcR, 2*srcR, 2*srcR,
-            QPen(QColor(22, 163, 74), 2),
-            QBrush(QColor(240, 253, 244)));
+            QPen(QColor(180, 98, 27), 1.5),
+            QBrush(QColor(255, 255, 255)));
         m_decorations.append(srcCircle);
 
-        auto* srcLabel = m_scene->addText("V₀", QFont("sans-serif", 8, QFont::Bold));
-        srcLabel->setDefaultTextColor(QColor(22, 163, 74));
+        auto* srcLabel = m_scene->addText("V₀", QFont("Segoe UI", 8, QFont::Bold));
+        srcLabel->setDefaultTextColor(QColor(180, 98, 27));
         srcLabel->setPos(x - 9.0, wireY - 9.0);
         m_decorations.append(srcLabel);
 
         const double wireStartX = x + srcR;
         const double wireEndX   = x + srcR + 20.0;
         auto* wire = m_scene->addLine(wireStartX, wireY, wireEndX, wireY,
-                                      QPen(QColor(60, 70, 90), 1.5));
+                                      QPen(QColor(77, 87, 99), 1.2));
         m_decorations.append(wire);
         x = wireEndX + 2.0;
 
@@ -333,7 +333,7 @@ private:
             if(i < m_sections.size() - 1){
                 double wx1 = x - SectionItem::SPACING;
                 auto* conn = m_scene->addLine(wx1, wireY, x, wireY,
-                                              QPen(QColor(60, 70, 90), 1.5));
+                                              QPen(QColor(77, 87, 99), 1.2));
                 m_decorations.append(conn);
             }
         }
@@ -352,7 +352,7 @@ private:
 
         // Short connecting wire
         auto* gndWire = m_scene->addLine(gndX, gndY, gndX + 16.0, gndY,
-                                         QPen(QColor(60, 70, 90), 1.5));
+                                         QPen(QColor(77, 87, 99), 1.2));
         m_decorations.append(gndWire);
 
         const double gcx = gndX + 18.0;   // centre-x of ground stack
@@ -363,17 +363,17 @@ private:
             auto* gline = m_scene->addLine(
                 gcx - halfLen, lineY,     // left endpoint
                 gcx + halfLen, lineY,     // right endpoint  ← horizontal
-                QPen(QColor(60, 70, 90), penW));
+                QPen(QColor(77, 87, 99), penW));
             m_decorations.append(gline);
         }
 
         // ── Node labels ──────────────────────────────────────────────
-        QFont nf("sans-serif", 7);
-        const double nodeY = y - 14.0;
+        QFont nf("Segoe UI", 7);
+        const double nodeY = y - 20.0;   // clear of the box outline
 
         // Ground node label (N0) at source
         auto* n0 = m_scene->addText("N0", nf);
-        n0->setDefaultTextColor(QColor(120, 120, 120));
+        n0->setDefaultTextColor(QColor(138, 148, 160));
         n0->setPos(x - SectionItem::SPACING - 14.0, nodeY);
         m_decorations.append(n0);
 
@@ -384,7 +384,7 @@ private:
 
             // Entry node (after aperture)
             auto* nEntry = m_scene->addText(QString("N%1").arg(nl.entry), nf);
-            nEntry->setDefaultTextColor(QColor(120, 120, 120));
+            nEntry->setDefaultTextColor(QColor(138, 148, 160));
             nEntry->setPos(pos.x() + SectionItem::APERTURE_WIDTH - 4.0, nodeY);
             m_decorations.append(nEntry);
 
@@ -396,7 +396,7 @@ private:
                 const double obsX = pos.x() + SectionItem::APERTURE_WIDTH
                                     + obs_ratio * SectionItem::BOX_WIDTH;
                 auto* obsLabel = m_scene->addText(QString("N%1").arg(nl.obs), nf);
-                obsLabel->setDefaultTextColor(QColor(220, 38, 38));
+                obsLabel->setDefaultTextColor(QColor(192, 57, 43));
                 obsLabel->setPos(obsX - 8.0, y + SectionItem::BOX_HEIGHT + 2.0);
                 m_decorations.append(obsLabel);
             }

@@ -157,7 +157,10 @@ public:
         if (!element_) return;
         const ElementParams& p = element_->params;
 
-        titleLabel_->setText(displayTypeName(p.type) + "  —  " + p.label);
+        // The user's name is shown only when it differs from the type name.
+        const QString typeName = displayTypeName(p.type);
+        titleLabel_->setText(p.label.isEmpty() || p.label == typeName
+                                 ? typeName : typeName + "  —  " + p.label);
         paramsLabel_->setText(buildParamText(p));
     }
 
@@ -220,10 +223,9 @@ private:
                    "QLabel{"
                    "color:%1;"
                    "background:transparent;"
-                   "font-family:'Courier New',monospace;"
+                   "font-family:'Segoe UI';"
                    "font-size:11px;"
                    "font-weight:bold;"
-                   "letter-spacing:1px;"
                    "}"
                    ).arg(EMStyle::rgb(CBStyle::TEXT_MUTED));
     }
@@ -233,10 +235,9 @@ private:
                    "QLabel{"
                    "color:%1;"
                    "background:transparent;"
-                   "font-family:'Courier New',monospace;"
+                   "font-family:'Segoe UI';"
                    "font-size:11px;"
                    "font-weight:bold;"
-                   "letter-spacing:1px;"
                    "}"
                    ).arg(EMStyle::rgb(accent()));
     }
@@ -246,7 +247,7 @@ private:
                    "QLabel{"
                    "color:%1;"
                    "background:transparent;"
-                   "font-family:'Courier New',monospace;"
+                   "font-family:'Segoe UI';"
                    "font-size:11px;"
                    "font-weight:600;"
                    "}"
@@ -258,7 +259,7 @@ private:
                    "QLabel{"
                    "color:%1;"
                    "background:transparent;"
-                   "font-family:'Courier New',monospace;"
+                   "font-family:'Segoe UI';"
                    "font-size:11px;"
                    "font-weight:bold;"
                    "}"
@@ -270,7 +271,7 @@ private:
                    "QLabel{"
                    "color:%1;"
                    "background:transparent;"
-                   "font-family:'Courier New',monospace;"
+                   "font-family:'Segoe UI';"
                    "font-size:10px;"
                    "padding-left:36px;"        // align under title (after #N + icon column)
                    "}"
@@ -311,14 +312,14 @@ private:
 
     static QString displayTypeName(ElementType t) {
         switch (t) {
-        case ElementType::Source:            return tr("SOURCE");
-        case ElementType::Aperture:          return tr("APERTURE");
-        case ElementType::ApertureWithCover: return tr("AP+COVER");
-        case ElementType::EmptyCavity:       return tr("CAVITY");
-        case ElementType::DielectricCavity:  return tr("DIEL.CAV");
-        case ElementType::Load:              return tr("OBS.PT");
+        case ElementType::Source:            return tr("Source");
+        case ElementType::Aperture:          return tr("Aperture");
+        case ElementType::ApertureWithCover: return tr("Covered aperture");
+        case ElementType::EmptyCavity:       return tr("Cavity");
+        case ElementType::DielectricCavity:  return tr("Dielectric cavity");
+        case ElementType::Load:              return tr("Observation point");
         }
-        return tr("ELEMENT");
+        return tr("Element");
     }
 
     // ── Parameter text formatter ─────────────────────────────────────
@@ -346,9 +347,9 @@ private:
         case ElementType::Source:
             return tr(
                        "E\u2080 = %1 V/m\n"
-                       "f: %2 \u2013 %3 GHz   (%4 pts)\n"
-                       "a\u00d7b = %5\u00d7%6 mm\n"
-                       "t_wall = %7 mm"
+                       "f = %2 \u2013 %3 GHz, %4 points\n"
+                       "a \u00d7 b = %5 \u00d7 %6 mm\n"
+                       "t = %7 mm"
                        )
                 .arg(fmt(p.E0, 3))
                 .arg(fmt(p.freqStart, 4))
@@ -375,7 +376,7 @@ private:
         case ElementType::EmptyCavity: {
             QString s = tr("L = %1 mm").arg(fmt(p.L_cavity_mm, 1));
             if (p.has_internal_obs)
-                s += "\n" + tr("obs @ %1 mm").arg(fmt(p.obs_offset_mm, 1));
+                s += "\n" + tr("observation at p = %1 mm").arg(fmt(p.obs_offset_mm, 1));
             return s;
         }
         case ElementType::DielectricCavity: {
@@ -388,7 +389,7 @@ private:
                 .arg(fmt(p.h_dielectric_mm, 2))
                 .arg(fmt(p.eps_r, 2));
             if (p.has_internal_obs)
-                s += "\n" + tr("obs @ %1 mm").arg(fmt(p.obs_offset_mm, 1));
+                s += "\n" + tr("observation at p = %1 mm").arg(fmt(p.obs_offset_mm, 1));
             return s;
         }
 
@@ -424,22 +425,21 @@ public:
         root->setSpacing(0);
 
         // ── Header (sticky) ───────────────────────────────────────────
-        auto* header = new QLabel(tr("EQUIVALENT CIRCUIT LAYERS"), this);
+        auto* header = new QLabel(tr("Equivalent circuit"), this);
         header->setStyleSheet(QString(
                                   "QLabel{"
                                   "background:%1;"
                                   "color:%2;"
-                                  "font-family:'Courier New',monospace;"
-                                  "font-size:10px;"
-                                  "font-weight:bold;"
-                                  "letter-spacing:2px;"
-                                  "padding:10px 12px;"
+                                  "font-family:'Segoe UI';"
+                                  "font-size:12px;"
+                                  "font-weight:600;"
+                                  "padding:12px 12px;"
                                   "border-bottom:1px solid %3;"
                                   "}"
                                   )
-                                  .arg(EMStyle::rgb(CBStyle::SURFACE2))
+                                  .arg(EMStyle::rgb(CBStyle::SURFACE))
                                   .arg(EMStyle::rgb(CBStyle::TEXT))
-                                  .arg(EMStyle::rgb(CBStyle::BORDER)));
+                                  .arg(EMStyle::rgb(CBStyle::BORDER_LT)));
         header->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
         root->addWidget(header);
 
@@ -468,16 +468,15 @@ public:
         // ── Empty-state label ────────────────────────────────────────
         emptyLabel_ = new QLabel(
             tr(
-                "No elements yet.\n\n"
-                "Drop elements onto the canvas\n"
-                "to see them stack here."),
+                "The elements of the circuit appear here in order, "
+                "from the source to the back wall."),
             contentWidget_);
         emptyLabel_->setAlignment(Qt::AlignCenter);
         emptyLabel_->setStyleSheet(QString(
                                        "QLabel{"
                                        "background:transparent;"
                                        "color:%1;"
-                                       "font-family:'Courier New',monospace;"
+                                       "font-family:'Segoe UI';"
                                        "font-size:10px;"
                                        "padding:30px 12px;"
                                        "}"

@@ -28,6 +28,7 @@
 #include <QDoubleSpinBox>
 #include <QSpinBox>
 #include <QComboBox>
+#include <QAbstractItemView>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QStatusBar>
@@ -49,8 +50,8 @@ using namespace EMCore;
 // ============================================================================
 namespace {
 // Width of the left-panel column. Matches the Circuit Builder convention.
-constexpr int kLeftPanelMinWidth = 260;
-constexpr int kLeftPanelMaxWidth = 320;
+constexpr int kLeftPanelMinWidth = 300;
+constexpr int kLeftPanelMaxWidth = 340;
 } // anonymous namespace
 
 
@@ -70,7 +71,7 @@ MainWindow::MainWindow(QWidget *parent)
     setStyleSheet(QString(
                       "QMainWindow{background:%1;}"
                       "QStatusBar{background:%2;color:%3;"
-                      "font-family:'Courier New';font-size:10px;border-top:1px solid %4;}"
+                      "font-family:'Segoe UI';font-size:11px;border-top:1px solid %4;}"
                       )
                       .arg(EMStyle::rgb(CBStyle::BG))
                       .arg(EMStyle::rgb(CBStyle::SURFACE))
@@ -158,7 +159,7 @@ QWidget* MainWindow::buildLeftPanel()
     root->setSpacing(0);
 
     // ── 1. Brand strip ───────────────────────────────────────────────────
-    auto* brand = new QLabel(EMStyle::brandStripText("QuickSim"), panel);
+    auto* brand = new QLabel(EMStyle::brandStripText(tr("Quick Simulation")), panel);
     brand->setStyleSheet(EMStyle::brandStripQSS());
     brand->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     brand->setTextFormat(Qt::RichText);
@@ -211,7 +212,7 @@ QWidget* MainWindow::buildLeftPanel()
 
         auto* lbl = new QLabel(label, row);
         lbl->setStyleSheet(EMStyle::lblSS());
-        lbl->setMinimumWidth(80);
+        lbl->setMinimumWidth(116);
         lay->addWidget(lbl);
 
         auto* spin = new QDoubleSpinBox(row);
@@ -222,7 +223,8 @@ QWidget* MainWindow::buildLeftPanel()
         spin->setSingleStep(step);
         if (!suffix.isEmpty()) spin->setSuffix(suffix);
         spin->setStyleSheet(EMStyle::spinSS(focusAccent));
-        lay->addWidget(spin);
+        spin->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+        lay->addWidget(spin, 1);
 
         scrollLayout->addWidget(row);
         return spin;
@@ -241,7 +243,7 @@ QWidget* MainWindow::buildLeftPanel()
 
         auto* lbl = new QLabel(label, row);
         lbl->setStyleSheet(EMStyle::lblSS());
-        lbl->setMinimumWidth(80);
+        lbl->setMinimumWidth(116);
         lay->addWidget(lbl);
 
         auto* spin = new QSpinBox(row);
@@ -250,7 +252,8 @@ QWidget* MainWindow::buildLeftPanel()
         spin->setValue(v);
         spin->setSingleStep(step);
         spin->setStyleSheet(EMStyle::spinSS(focusAccent));
-        lay->addWidget(spin);
+        spin->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+        lay->addWidget(spin, 1);
 
         scrollLayout->addWidget(row);
         return spin;
@@ -270,12 +273,17 @@ QWidget* MainWindow::buildLeftPanel()
 
         auto* lbl = new QLabel(label, row);
         lbl->setStyleSheet(EMStyle::lblSS());
-        lbl->setMinimumWidth(80);
+        lbl->setMinimumWidth(116);
         lay->addWidget(lbl);
 
         auto* combo = new QComboBox(row);
         combo->addItems(items);
         combo->setStyleSheet(EMStyle::comboSS(accent));
+        // Long entries must not widen the panel; the popup still shows them in full.
+        combo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+        combo->setMinimumContentsLength(8);
+        combo->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+        combo->view()->setMinimumWidth(260);
         lay->addWidget(combo, /*stretch*/ 1);
 
         scrollLayout->addWidget(row);
@@ -283,10 +291,10 @@ QWidget* MainWindow::buildLeftPanel()
     };
 
     // ── 2. PRESETS section ───────────────────────────────────────────────
-    makeSectionHeader(tr("PRESETS"));
+    makeSectionHeader(tr("Preset"));
 
     m_cboPreset = makeComboRow(
-        tr("Config:"),
+        tr("Structure"),
         {tr("1-Section (baseline)"),
          tr("2-Section identical"),
          tr("3-Section identical"),
@@ -312,18 +320,18 @@ QWidget* MainWindow::buildLeftPanel()
             this, &MainWindow::onPresetChanged);
 
     // ── 3. ENCLOSURE section ─────────────────────────────────────────────
-    makeSectionHeader(tr("ENCLOSURE"));
+    makeSectionHeader(tr("Enclosure"));
 
     const QColor accentEnc = EMStyle::accentFor(EMStyle::AccentRole::Primary);
-    m_spinA = makeSpinRow(tr("a [mm]:"),     300.0,  10.0, 2000.0, 1.0, 1,
-                          QStringLiteral(" mm"), accentEnc);
-    m_spinB = makeSpinRow(tr("b [mm]:"),     120.0,   1.0, 2000.0, 1.0, 1,
-                          QStringLiteral(" mm"), accentEnc);
-    m_spinT = makeSpinRow(tr("t [mm]:"),       1.5,   0.1,   50.0, 0.1, 2,
-                          QStringLiteral(" mm"), accentEnc);
+    m_spinA = makeSpinRow(tr("Width a"),     300.0,  10.0, 2000.0, 1.0, 1,
+                          tr(" mm"), accentEnc);
+    m_spinB = makeSpinRow(tr("Height b"),     120.0,   1.0, 2000.0, 1.0, 1,
+                          tr(" mm"), accentEnc);
+    m_spinT = makeSpinRow(tr("Wall thickness t"),       1.5,   0.1,   50.0, 0.1, 2,
+                          tr(" mm"), accentEnc);
 
     m_cboTopology = makeComboRow(
-        tr("Topology:"),
+        tr("Topology"),
         {tr("Cascade"), tr("Star-branch")},
         accentEnc);
     m_cboTopology->setToolTip(tr(
@@ -334,22 +342,22 @@ QWidget* MainWindow::buildLeftPanel()
             this, &MainWindow::onTopologyChanged);
 
     // ── 4. FREQUENCY section ─────────────────────────────────────────────
-    makeSectionHeader(tr("FREQUENCY SWEEP"));
+    makeSectionHeader(tr("Frequency"));
 
-    m_spinFstart = makeSpinRow(tr("Start:"),    1.0,   0.1,  5000.0, 1.0, 1,
-                               QStringLiteral(" MHz"), accentEnc);
-    m_spinFstop  = makeSpinRow(tr("Stop:"),  2000.0,  10.0, 40000.0, 100.0, 1,
-                              QStringLiteral(" MHz"), accentEnc);
-    m_spinPoints = makeIntSpinRow(tr("Points:"), 200, 2, 5000, 10, accentEnc);
+    m_spinFstart = makeSpinRow(tr("Start"),    1.0,   0.1,  5000.0, 1.0, 1,
+                               tr(" MHz"), accentEnc);
+    m_spinFstop  = makeSpinRow(tr("Stop"),  2000.0,  10.0, 40000.0, 100.0, 1,
+                              tr(" MHz"), accentEnc);
+    m_spinPoints = makeIntSpinRow(tr("Points"), 200, 2, 5000, 10, accentEnc);
 
     // ── 5. SECTION PROPERTIES section (PropertyPanel goes here) ─────────
-    makeSectionHeader(tr("SECTION PROPERTIES"));
+    makeSectionHeader(tr("Section properties"));
 
     m_propertyPanel = new PropertyPanel(scrollContent);
     scrollLayout->addWidget(m_propertyPanel);
 
     // ── 6. ACTIONS section ───────────────────────────────────────────────
-    makeSectionHeader(tr("ACTIONS"));
+    makeSectionHeader(tr("Sections"));
 
     m_btnAddSection = new QPushButton(tr("Add Section"), scrollContent);
     m_btnAddSection->setStyleSheet(
@@ -404,7 +412,7 @@ QWidget* MainWindow::buildLeftPanel()
 
     primaryLayout->addWidget(m_validityRow);
 
-    m_btnCompute = new QPushButton(tr("COMPUTE"), primary);
+    m_btnCompute = new QPushButton(tr("Compute"), primary);
     m_btnCompute->setMinimumHeight(38);
     m_btnCompute->setStyleSheet(
         EMStyle::primaryButtonQSS(EMStyle::accentFor(EMStyle::AccentRole::Primary)));
@@ -446,52 +454,44 @@ void MainWindow::setupPlot()
     // [T2.1a] Plot styling aligned with Window 2 (Circuit Builder).
     m_plot->setBackground(QBrush(CBStyle::BG));
 
-    // Title
-    m_plot->plotLayout()->insertRow(0);
-    auto* title = new QCPTextElement(
-        m_plot,
-        tr("Quick Simulation — Shielding Effectiveness"),
-        QFont("Segoe UI", 11, QFont::Bold));
-    title->setTextColor(CBStyle::TEXT);
-    m_plot->plotLayout()->addElement(0, 0, title);
-
     // Axes
-    m_plot->xAxis->setLabel(tr("Frequency [GHz]"));
-    m_plot->yAxis->setLabel(tr("SE [dB]"));
+    m_plot->xAxis->setLabel(tr("Frequency, GHz"));
+    m_plot->yAxis->setLabel(tr("SE, dB"));
     m_plot->xAxis->setLabelFont(QFont("Segoe UI", 9));
     m_plot->yAxis->setLabelFont(QFont("Segoe UI", 9));
-    m_plot->xAxis->setTickLabelFont(QFont("Segoe UI", 8));
-    m_plot->yAxis->setTickLabelFont(QFont("Segoe UI", 8));
+    m_plot->xAxis->setTickLabelFont(QFont("Segoe UI", 9));
+    m_plot->yAxis->setTickLabelFont(QFont("Segoe UI", 9));
     m_plot->xAxis->setLabelColor(CBStyle::TEXT);
     m_plot->yAxis->setLabelColor(CBStyle::TEXT);
     m_plot->xAxis->setTickLabelColor(CBStyle::TEXT_MUTED);
     m_plot->yAxis->setTickLabelColor(CBStyle::TEXT_MUTED);
-    m_plot->xAxis->setBasePen(QPen(CBStyle::BORDER));
-    m_plot->yAxis->setBasePen(QPen(CBStyle::BORDER));
-    m_plot->xAxis->setTickPen(QPen(CBStyle::BORDER));
-    m_plot->yAxis->setTickPen(QPen(CBStyle::BORDER));
-    m_plot->xAxis->setSubTickPen(QPen(CBStyle::BORDER_LT));
-    m_plot->yAxis->setSubTickPen(QPen(CBStyle::BORDER_LT));
+    // Closed frame like the article's figures: mirrored top/right axes
+    // without labels.
+    m_plot->axisRect()->setupFullAxesBox(true);
+    for (QCPAxis* ax : { m_plot->xAxis, m_plot->yAxis, m_plot->xAxis2, m_plot->yAxis2 }) {
+        ax->setBasePen(QPen(CBStyle::TEXT_MUTED));
+        ax->setTickPen(QPen(CBStyle::TEXT_MUTED));
+        ax->setSubTickPen(QPen(CBStyle::TEXT_DIM));
+    }
+    m_plot->xAxis2->setTickLabels(false);
+    m_plot->yAxis2->setTickLabels(false);
     m_plot->xAxis->setRange(0.0, 2.0);
     m_plot->yAxis->setRange(-40.0, 100.0);
 
     // Grid
-    m_plot->xAxis->grid()->setSubGridVisible(true);
-    m_plot->yAxis->grid()->setSubGridVisible(true);
-    QPen gridPen(CBStyle::BORDER_LT);
-    gridPen.setStyle(Qt::DashLine);
+    m_plot->xAxis->grid()->setSubGridVisible(false);
+    m_plot->yAxis->grid()->setSubGridVisible(false);
+    const QPen gridPen(QColor(236, 239, 242));
     m_plot->xAxis->grid()->setPen(gridPen);
     m_plot->yAxis->grid()->setPen(gridPen);
-    QPen subGridPen(CBStyle::BORDER_LT);
-    subGridPen.setStyle(Qt::DotLine);
-    m_plot->xAxis->grid()->setSubGridPen(subGridPen);
-    m_plot->yAxis->grid()->setSubGridPen(subGridPen);
+    m_plot->xAxis->grid()->setZeroLinePen(Qt::NoPen);
+    m_plot->yAxis->grid()->setZeroLinePen(Qt::NoPen);
 
     // Legend
     m_plot->legend->setVisible(true);
     m_plot->legend->setFont(QFont("Segoe UI", 9));
-    m_plot->legend->setBrush(QBrush(QColor(255, 255, 255, 220)));
-    m_plot->legend->setBorderPen(QPen(CBStyle::BORDER));
+    m_plot->legend->setBrush(QBrush(QColor(255, 255, 255, 230)));
+    m_plot->legend->setBorderPen(QPen(CBStyle::BORDER_LT));
     m_plot->axisRect()->insetLayout()->setInsetAlignment(
         0, Qt::AlignTop | Qt::AlignRight);
 
@@ -520,7 +520,7 @@ void MainWindow::setStatus(const QString& msg, const QColor& col)
 {
     m_lblStatus->setText(msg);
     m_lblStatus->setStyleSheet(QString("color:rgb(%1,%2,%3);background:transparent;"
-                                       "font-family:'Courier New';font-size:10px;")
+                                       "font-family:'Segoe UI';font-size:11px;")
                                    .arg(col.red()).arg(col.green()).arg(col.blue()));
 }
 
@@ -591,8 +591,8 @@ void MainWindow::setValidityState(bool ok, const QString& brief, const QString& 
     m_validityLabel->setStyleSheet(QString(
                                        "QLabel{"
                                        "color:%1;background:transparent;"
-                                       "font-family:'Courier New';font-size:10px;font-weight:bold;"
-                                       "letter-spacing:1px;}"
+                                       "font-family:'Segoe UI';font-size:10px;font-weight:bold;"
+                                       "}"
                                        ).arg(EMStyle::rgb(dotColor)));
 
     m_validityRow->setToolTip(full);
@@ -768,6 +768,7 @@ void MainWindow::onTopologyChanged(int index)
                                ? TopologyType::STAR_BRANCH
                                : TopologyType::CASCADE;
     m_canvas->setTopology(t);
+    m_propertyPanel->setStarTopology(t == TopologyType::STAR_BRANCH);
     refreshValidityIndicator();
 }
 
@@ -1049,17 +1050,17 @@ void MainWindow::runAnalysis()
     plotResults(freqs_GHz, SE_curves, labels);
 
     // 8. Status bar
+    const QString topologyName = (cfg.topology == TopologyType::STAR_BRANCH)
+                                     ? tr("Star-branch") : tr("Cascade");
     setStatus(
-        tr("%1-section %2 | %3 branches, %4 nodes, %5 obs pts | "
-           "%6 points in %7 ms")
-            .arg(static_cast<int>(cfg.sections.size()))
-            .arg(cfg.topology == TopologyType::STAR_BRANCH ? "STAR_BRANCH" : "CASCADE")
-            .arg(solver.getNumBranches())
-            .arg(solver.getNumNodes())
-            .arg(static_cast<int>(obs_points.size()))
-            .arg(n_pts)
-            .arg(elapsed),
-        CBStyle::GREEN);
+        tr("Computed %1 frequencies in %2 ms").arg(n_pts).arg(elapsed)
+            + QStringLiteral("   ·   ")
+            + tr("Sections: %1").arg(static_cast<int>(cfg.sections.size()))
+            + QStringLiteral("   ·   ")
+            + tr("Observation points: %1").arg(static_cast<int>(obs_points.size()))
+            + QStringLiteral("   ·   ")
+            + topologyName,
+        CBStyle::TEXT_MUTED);
 }
 
 
@@ -1146,7 +1147,7 @@ void MainWindow::setupPlotInteractiveItems()
     m_readoutLabel = new QCPItemText(m_plot);
     m_readoutLabel->setPositionAlignment(Qt::AlignLeft | Qt::AlignTop);
     m_readoutLabel->position->setType(QCPItemPosition::ptPlotCoords);
-    m_readoutLabel->setFont(QFont("Courier New", 9));
+    m_readoutLabel->setFont(QFont("Segoe UI", 9));
     m_readoutLabel->setColor(CBStyle::TEXT);
     m_readoutLabel->setPadding(QMargins(6, 4, 6, 4));
     m_readoutLabel->setBrush(QBrush(QColor(255, 255, 240, 230)));

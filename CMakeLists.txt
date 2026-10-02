@@ -13,6 +13,11 @@ include_directories(${CMAKE_SOURCE_DIR}/external/eigen/eigen-5.0.0)
 
 qt_standard_project_setup()
 
+# Compile resources/resources.qrc (icons used via ":/icons/..."). Without this
+# the .qrc listed in qt_add_executable is never compiled and every resource
+# lookup fails silently.
+set(CMAKE_AUTORCC ON)
+
 # ── Windows resource script (embeds .ico into .exe) ──────────
 # Only compiled on Windows. On other platforms the variable is
 # empty and no .rc file is added to the source list.
