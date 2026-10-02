@@ -49,7 +49,7 @@ namespace EMCore {
 //
 // Y-matrix (Eqs. 3.14, 3.15 — identical structure, kg and Zg modified):
 //   Y₁₁ = Y₂₂ =   1 / (j·Zg·tan(kg·L))    Eq.(3.14)
-//   Y₁₂ = Y₂₁ = − 1 / (Zg·sin(kg·L))      Eq.(3.15)
+//   Y₁₂ = Y₂₁ = − 1 / (j·Zg·sin(kg·L))    Eq.(3.15), corrected
 //
 // Y-matrix assembly is delegated to TL_EmptyCavity::assembleYMatrix()
 // to ensure a single, validated implementation of Eqs. (3.14)–(3.15).

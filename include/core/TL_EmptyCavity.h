@@ -46,16 +46,17 @@ namespace EMCore {
 // 2×2 Admittance matrix (Eqs. 3.14, 3.15):
 //
 //   Y₁₁ = Y₂₂ = 1 / (j·Zg·tan(kg·L))       (Eq. 3.14)
-//   Y₁₂ = Y₂₁ = −1 / (Zg·sin(kg·L))         (Eq. 3.15)
+//   Y₁₂ = Y₂₁ = −1 / (j·Zg·sin(kg·L))       (Eq. 3.15, corrected)
 //
-//   Note on sign of Y₁₂:
-//   The off-diagonal element carries a leading minus sign as given in
-//   Eq. (3.15). This is consistent with the standard passive reciprocal
-//   two-port TL Y-matrix and ensures Y₁₂ = Y₂₁ (symmetry). The matrix
-//   written in full is:
+//   Note on Y₁₂:
+//   Eq. (3.15) as printed in the project report omits the imaginary unit j.
+//   For a lossless line every entry of the Y-matrix must be purely imaginary
+//   (Pozar, Microwave Engineering, Table 4.2), so the j is required; without
+//   it the Schur complement Y₁₁ − Y₁₂²/Y₂₂ changes sign and the computed SE
+//   and resonance frequencies are wrong. The matrix written in full is:
 //
-//     Y = [ 1/(j·Zg·tan(β))    −1/(Zg·sin(β)) ]
-//         [ −1/(Zg·sin(β))      1/(j·Zg·tan(β)) ]
+//     Y = [ 1/(j·Zg·tan(β))     −1/(j·Zg·sin(β)) ]
+//         [ −1/(j·Zg·sin(β))     1/(j·Zg·tan(β)) ]
 //
 //   where β = kg·L is the complex electrical length.
 //
@@ -132,16 +133,13 @@ protected:
     // Matrix form (Eqs. 3.14, 3.15):
     //
     //   Y = [ Y₁₁   Y₁₂ ]   Y₁₁ = Y₂₂ =   1 / (j·Zg·tan(β))   Eq.(3.14)
-    //       [ Y₂₁   Y₂₂ ]   Y₁₂ = Y₂₁ = − 1 / (Zg·sin(β))      Eq.(3.15)
+    //       [ Y₂₁   Y₂₂ ]   Y₁₂ = Y₂₁ = − 1 / (j·Zg·sin(β))    Eq.(3.15)
     //
     //   β = kg_eff · L  (complex electrical length)
     //
-    // Sign convention for Y₁₂:
-    //   The leading minus in Eq. (3.15) is mandatory. It guarantees:
-    //     (a) Symmetry:          Y₁₂ = Y₂₁
-    //     (b) Passivity:         Re{Y₁₁} ≥ |Re{Y₁₂}|  (diagonal dominance)
-    //     (c) Correct physics:   node voltages computed by MNA are consistent
-    //                            with energy conservation in the waveguide.
+    // Y₁₂ must carry both the leading minus and the factor j (see the class
+    // header): for a lossless line all four entries are purely imaginary,
+    // and Y₁₂ = Y₂₁ keeps the two-port reciprocal.
     //
     // Singularity protection:
     //   tan(β) = 0 at β = nπ  → Y₁₁ → ∞  (short-circuit resonance)
@@ -167,7 +165,7 @@ protected:
 
         // Eqs. (3.14) and (3.15)
         const std::complex<double> Y11 =  1.0 / (1.0i * Zg * tan_beta);  // Eq.(3.14)
-        const std::complex<double> Y12 = -1.0 / (Zg * sin_beta);          // Eq.(3.15) — minus sign
+        const std::complex<double> Y12 = -1.0 / (1.0i * Zg * sin_beta);   // Eq.(3.15), corrected: j restored
         const std::complex<double> Y21 =  Y12;                             // Symmetry
         const std::complex<double> Y22 =  Y11;                             // Eq.(3.14)
 
